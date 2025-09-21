@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+python-multipart
+pydantic-settings
+SpeechRecognition
+gTTS
+langchain-openai
+langchain-anthropic
+langchain-google-genai
