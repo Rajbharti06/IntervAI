@@ -61,7 +61,7 @@ Preparing for interviews is stressful and time-consuming. We wanted a tool that 
 
 ## Demo Links
 - Video: add link here
-- Screenshots: add links (or embed) here
+- Screenshots: https://github.com/Rajbharti06/IntervAI/tree/main/docs/screenshots
 
 ## Repo
 - GitHub/Source: https://github.com/Rajbharti06/IntervAI
