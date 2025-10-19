@@ -10,6 +10,19 @@ An AI-powered mock interview platform with adaptive difficulty, offline/demo mod
 - Offline/demo mode: no external APIs or keys required; uses local questions.
 - Resilient API: graceful fallbacks and helpful error messages.
 
+## Screenshots
+- Setup Page
+  
+  ![Setup](docs/screenshots/setup.png)
+
+- Interview Page
+  
+  ![Interview](docs/screenshots/interview.png)
+
+- Dashboard Page
+  
+  ![Dashboard](docs/screenshots/dashboard.png)
+
 ## Architecture
 - Frontend: React + Vite + Tailwind (`IntervAI/frontend`).
 - Backend: FastAPI + Uvicorn (`IntervAI/backend`).
