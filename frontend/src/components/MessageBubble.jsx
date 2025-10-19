@@ -15,9 +15,11 @@ function formatTime(timestamp) {
 
 function getScoreColor(score) {
   if (typeof score !== 'number') return 'text-gray-600 bg-gray-100';
-  if (score >= 80) return 'text-green-600 bg-green-100';
-  if (score >= 60) return 'text-yellow-600 bg-yellow-100';
-  if (score >= 40) return 'text-orange-600 bg-orange-100';
+  // Normalize to 1–10 scale
+  const s = score <= 10 ? score : Math.round(score / 10);
+  if (s >= 9) return 'text-green-600 bg-green-100';
+  if (s >= 7) return 'text-yellow-600 bg-yellow-100';
+  if (s >= 5) return 'text-orange-600 bg-orange-100';
   return 'text-red-600 bg-red-100';
 }
 
@@ -135,7 +137,7 @@ export default function MessageBubble({ message }) {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Score:</span>
                 <div className={`px-2 py-1 rounded-full text-sm font-medium ${getScoreColor(score)}`}>
-                  {score}/100
+                  {score <= 10 ? score : Math.round(score / 10)}/10
                 </div>
               </div>
             </div>

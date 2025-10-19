@@ -1,4 +1,6 @@
-import React, { useState, useRef } from 'react';
+﻿import React, { useState, useRef } from 'react';
+
+import { API_BASE } from '../config';
 
 export default function MicButton({ onTranscript, provider, sessionId, disabled = false }) {
   const [isRecording, setIsRecording] = useState(false);
@@ -57,7 +59,7 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
             formData.append('file', audioBlob, 'recording.wav');
             formData.append('session_id', sessionId);
 
-            const response = await fetch('http://localhost:8000/interview/transcribe', {
+            const response = await fetch(API_BASE + '/interview/transcribe', {
               method: 'POST',
               body: formData,
             });
@@ -235,3 +237,5 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
     </div>
   );
 }
+
+

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+
+import { API_BASE } from '../config';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MicButton from '../components/MicButton';
 import MessageBubble from '../components/MessageBubble';
@@ -24,12 +26,34 @@ function Interview() {
   const [errors, setErrors] = useState({});
   const [networkError, setNetworkError] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [timeLeft, setTimeLeft] = useState(null);
+  const timerRef = useRef(null);
+  const [isTimeUp, setIsTimeUp] = useState(false);
+  const [stressActive, setStressActive] = useState(false);
+  const videoRef = useRef(null);
+  const [mediaStream, setMediaStream] = useState(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const audioCtxRef = useRef(null);
+  const lastBeepRef = useRef(null);
 
   // Initialize session data
   useEffect(() => {
     const stateData = location.state;
     if (stateData?.session_id) {
-      setSessionData(stateData);
+      // Merge extras from localStorage if missing (resume flow)
+      try {
+        const raw = localStorage.getItem('intervai_active_session');
+        const stored = raw ? JSON.parse(raw) : {};
+        const merged = {
+          ...stateData,
+          difficulty: stateData.difficulty ?? stored.difficulty,
+          timeLimitSec: stateData.timeLimitSec ?? stored.timeLimitSec,
+          stressMode: stateData.stressMode ?? stored.stressMode,
+        };
+        setSessionData(merged);
+      } catch {
+        setSessionData(stateData);
+      }
       return;
     }
 
@@ -94,6 +118,111 @@ function Interview() {
     };
   }, []);
 
+  // Setup per-question timer when a new question arrives
+  useEffect(() => {
+    if (!currentQuestion || !sessionData) return;
+    const limit = Number(sessionData.timeLimitSec || 0);
+    if (!limit || limit <= 0) return;
+
+    setIsTimeUp(false);
+    setTimeLeft(limit);
+    setStressActive(!!sessionData.stressMode);
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        const next = (prev || 0) - 1;
+        if (next <= 0) {
+          clearInterval(timerRef.current);
+          timerRef.current = null;
+          setIsTimeUp(true);
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [currentQuestion, sessionData]);
+
+  // Stress mode audio ticks (last 10s) and time-up cue
+  const playBeep = (duration = 120, frequency = 880, volume = 0.05) => {
+    try {
+      const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = ctx;
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, ctx.currentTime);
+      gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      oscillator.start();
+      setTimeout(() => {
+        oscillator.stop();
+        oscillator.disconnect();
+        gainNode.disconnect();
+      }, duration);
+    } catch (e) {
+      // ignore audio failures
+    }
+  };
+
+  useEffect(() => {
+    if (!stressActive) return;
+    if (typeof timeLeft !== 'number') return;
+    // Beep once per second in last 10s
+    if (timeLeft > 0 && timeLeft <= 10 && lastBeepRef.current !== timeLeft) {
+      lastBeepRef.current = timeLeft;
+      playBeep(100, 900, 0.04);
+    }
+    // Final cue at time-up
+    if (isTimeUp && lastBeepRef.current !== 'final') {
+      lastBeepRef.current = 'final';
+      playBeep(250, 600, 0.06);
+    }
+  }, [timeLeft, stressActive, isTimeUp]);
+
+  // Camera controls
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      setMediaStream(stream);
+      setCameraOn(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (err) {
+      console.error('Camera start failed:', err);
+      setErrors(prev => ({ ...prev, camera: 'Unable to access camera. Check permissions.' }));
+    }
+  };
+
+  const stopCamera = () => {
+    try {
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.srcObject = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+      }
+    } finally {
+      setCameraOn(false);
+      setMediaStream(null);
+    }
+  };
+
   const formatTime = (ms) => {
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -122,7 +251,7 @@ function Interview() {
       const formData = new FormData();
       formData.append('session_id', sessionData.session_id);
       
-      const response = await fetch('http://localhost:8000/interview/question', {
+      const response = await fetch(API_BASE + '/interview/question', {
         method: 'POST',
         body: formData
       });
@@ -173,13 +302,14 @@ function Interview() {
         ...prev,
         questionsAsked: prev.questionsAsked + 1
       }));
+      // reset timer states handled by effect
 
     } catch (error) {
       console.error('Error generating question:', error);
       
       // Check if it's a network error
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        setNetworkError('Cannot connect to the interview service. Please check if the backend is running on port 8000.');
+        setNetworkError('Cannot connect to the interview service. Please ensure the backend is running and reachable.');
       } else {
         setErrors({ question: error.message || 'Failed to generate question. Please try again.' });
       }
@@ -215,7 +345,7 @@ function Interview() {
       formData.append('session_id', sessionData.session_id);
       formData.append('answer', userMessage.content);
       
-      const response = await fetch('http://localhost:8000/interview/answer', {
+      const response = await fetch(API_BASE + '/interview/answer', {
         method: 'POST',
         body: formData
       });
@@ -241,17 +371,26 @@ function Interview() {
           };
 
           setMessages(prev => [...prev, feedbackMessage]);
+          // Compute 1-10 scale for average
+          const score10 = typeof feedbackMessage.score === 'number' ? (feedbackMessage.score <= 10 ? feedbackMessage.score : Math.round(feedbackMessage.score / 10)) : 0;
 
           // Update average score
           setInterviewStats(prev => {
             const totalQuestions = prev.questionsAsked;
             const newAverage = totalQuestions > 0 
-              ? ((prev.averageScore * (totalQuestions - 1)) + (feedbackMessage.score)) / totalQuestions
-              : (feedbackMessage.score);
+              ? ((prev.averageScore * (totalQuestions - 1)) + score10) / totalQuestions
+              : score10;
             return { ...prev, averageScore: newAverage };
           });
 
           setCurrentQuestion(null);
+          setTimeLeft(null);
+          setIsTimeUp(false);
+
+          // Auto follow-up for lower scores
+          if (score10 && score10 < 7) {
+            await requestFollowup();
+          }
         } else {
           let errorMessage = (data && (data.detail || data.message)) ? (data.detail || data.message) : `Server error (${response.status})`;
           if (!(data && (data.detail || data.message))) {
@@ -288,17 +427,24 @@ function Interview() {
         };
 
         setMessages(prev => [...prev, feedbackMessage]);
+        const score10 = (feedbackMessage.score <= 10) ? feedbackMessage.score : Math.round(feedbackMessage.score / 10);
 
         // Update average score
         setInterviewStats(prev => {
           const totalQuestions = prev.questionsAsked;
           const newAverage = totalQuestions > 0 
-            ? ((prev.averageScore * (totalQuestions - 1)) + (feedbackMessage.score)) / totalQuestions
-            : (feedbackMessage.score);
+            ? ((prev.averageScore * (totalQuestions - 1)) + score10) / totalQuestions
+            : score10;
           return { ...prev, averageScore: newAverage };
         });
 
         setCurrentQuestion(null);
+        setTimeLeft(null);
+        setIsTimeUp(false);
+
+        if (score10 && score10 < 7) {
+          await requestFollowup();
+        }
       }
 
     } catch (error) {
@@ -306,12 +452,30 @@ function Interview() {
       
       // Check if it's a network error
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        setNetworkError('Cannot connect to the interview service. Please check if the backend is running on port 8000.');
+        setNetworkError('Cannot connect to the interview service. Please ensure the backend is running and reachable.');
       } else {
         setErrors({ answer: error.message || 'Failed to send answer. Please try again.' });
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const requestFollowup = async () => {
+    if (!sessionData?.session_id || !isOnline) return;
+    try {
+      const formData = new FormData();
+      formData.append('session_id', sessionData.session_id);
+      const response = await fetch(API_BASE + '/interview/followup', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(`Follow-up failed (${response.status})`);
+      const data = await response.json();
+      const q = data.question || '';
+      const message = { id: Date.now(), type: 'question', content: q, timestamp: new Date().toISOString() };
+      setMessages(prev => [...prev, message]);
+      setCurrentQuestion(message);
+      setInterviewStats(prev => ({ ...prev, questionsAsked: prev.questionsAsked + 1 }));
+    } catch (err) {
+      console.error('Follow-up error:', err);
     }
   };
 
@@ -328,7 +492,7 @@ function Interview() {
       const formData = new FormData();
       formData.append('session_id', sessionData.session_id);
       
-      const response = await fetch('http://localhost:8000/interview/end', {
+      const response = await fetch(API_BASE + '/interview/end', {
         method: 'POST',
         body: formData
       });
@@ -402,6 +566,19 @@ function Interview() {
             </div>
             
             <div className="flex items-center space-x-6">
+              {/* Difficulty and Per-question limit badges */}
+              <div className="hidden md:flex items-center space-x-3">
+                {sessionData?.difficulty && (
+                  <span className="px-2 py-1 rounded-full text-xs bg-purple-50 text-purple-700 border border-purple-200">
+                    Difficulty: {String(sessionData.difficulty).charAt(0).toUpperCase() + String(sessionData.difficulty).slice(1)}
+                  </span>
+                )}
+                {sessionData?.timeLimitSec ? (
+                  <span className="px-2 py-1 rounded-full text-xs bg-blue-50 text-blue-700 border border-blue-200">
+                    Per Q: {sessionData.timeLimitSec}s
+                  </span>
+                ) : null}
+              </div>
               <div className="interview-timer">
                 <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -439,7 +616,7 @@ function Interview() {
             <div className="text-center">
               <div className="text-sm text-gray-500">Avg Score</div>
               <div className="font-medium text-gray-900">
-                {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/100` : 'N/A'}
+                {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/10` : 'N/A'}
               </div>
             </div>
           </div>
@@ -493,6 +670,22 @@ function Interview() {
 
               {/* Input Area */}
               <div className="border-t border-gray-200 p-6">
+                {/* Per-question Timer */}
+                {currentQuestion && timeLeft !== null && (
+                  <div className={`mb-4 flex items-center justify-between ${isTimeUp ? 'bg-red-50 border border-red-200 rounded-lg p-3' : ''}`}>
+                    <div className="flex items-center space-x-2">
+                      <svg className={`w-5 h-5 ${isTimeUp ? 'text-red-600' : 'text-gray-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className={`text-sm ${isTimeUp ? 'text-red-700 font-medium' : 'text-gray-700'}`}>
+                        {isTimeUp ? 'Time\'s up for this question.' : `Time left: ${timeLeft}s`}
+                      </span>
+                    </div>
+                    {!isTimeUp && stressActive && timeLeft <= 10 && (
+                      <span className="text-xs text-red-600 animate-pulse">â° Focus â€” last 10s</span>
+                    )}
+                  </div>
+                )}
                 {/* Network Error Display */}
                 {networkError && (
                   <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3">
@@ -545,14 +738,14 @@ function Interview() {
                       placeholder="Type your answer here..."
                       className="form-input resize-none"
                       rows="3"
-                      disabled={isLoading || !currentQuestion}
+                      disabled={isLoading || !currentQuestion || isTimeUp}
                     />
                   </div>
                   
                   <div className="flex flex-col space-y-2">
                     <button
                       onClick={sendAnswer}
-                      disabled={!input.trim() || isLoading || !currentQuestion}
+                      disabled={!input.trim() || isLoading || !currentQuestion || isTimeUp}
                       className="btn btn-primary"
                     >
                       {isLoading ? (
@@ -570,6 +763,13 @@ function Interview() {
                       provider={sessionData.provider}
                       sessionId={sessionData.session_id}
                     />
+                    <button
+                      onClick={requestFollowup}
+                      disabled={isGeneratingQuestion || !sessionData?.session_id}
+                      className="btn btn-outline"
+                    >
+                      Ask Follow-Up
+                    </button>
                   </div>
                 </div>
               </div>
@@ -602,6 +802,26 @@ function Interview() {
                 </div>
               </div>
 
+              {/* Camera Preview */}
+              <div className="card">
+                <div className="p-4">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">Camera Preview</h3>
+                  <div className="rounded-lg overflow-hidden bg-black aspect-video">
+                    <video ref={videoRef} className="w-full h-full" muted playsInline />
+                  </div>
+                  <div className="mt-3 flex space-x-2">
+                    {!cameraOn ? (
+                      <button onClick={startCamera} className="btn btn-outline btn-xs">Start Camera</button>
+                    ) : (
+                      <button onClick={stopCamera} className="btn btn-outline btn-xs">Stop Camera</button>
+                    )}
+                  </div>
+                  {errors.camera && (
+                    <p className="mt-2 text-xs text-red-600">{errors.camera}</p>
+                  )}
+                </div>
+              </div>
+
               {/* Session Stats */}
               <div className="card">
                 <div className="p-4">
@@ -618,7 +838,7 @@ function Interview() {
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Avg Score</span>
                       <span className="font-medium">
-                        {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/100` : 'N/A'}
+                        {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/10` : 'N/A'}
                       </span>
                     </div>
                   </div>
@@ -630,10 +850,10 @@ function Interview() {
                 <div className="p-4">
                   <h3 className="text-sm font-medium text-gray-900 mb-3">Tips</h3>
                   <div className="space-y-2 text-xs text-gray-600">
-                    <p>• Be specific and detailed in your answers</p>
-                    <p>• Use examples from your experience</p>
-                    <p>• Think out loud to show your process</p>
-                    <p>• Ask clarifying questions if needed</p>
+                    <p>â€¢ Be specific and detailed in your answers</p>
+                    <p>â€¢ Use examples from your experience</p>
+                    <p>â€¢ Think out loud to show your process</p>
+                    <p>â€¢ Ask clarifying questions if needed</p>
                   </div>
                 </div>
               </div>
@@ -646,3 +866,5 @@ function Interview() {
 }
 
 export default Interview;
+
+

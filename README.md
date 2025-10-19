@@ -1,194 +1,77 @@
-# IntervAI 🚀
+# IntervAI
 
-IntervAI is an AI-powered interview preparation tool designed to help users practice and improve their interview skills. It provides a dynamic platform where users can receive tailored interview questions based on a specified domain and get instant, detailed feedback on their responses. This project leverages modern web technologies and AI capabilities to create an interactive and effective learning experience.
+An AI-powered mock interview platform with adaptive difficulty, offline/demo mode, and rich feedback. Frontend is React (Vite), backend is FastAPI. Supports multiple AI providers (OpenAI, Anthropic, Google, Perplexity, Groq, Together AI) and falls back to a local question bank when running demo mode.
 
-## Features
+## Highlights
+- Adaptive difficulty: foundational → intermediate → advanced based on performance.
+- Diverse question types: conceptual, practical, scenario, coding, behavioral.
+- Follow-ups and scoring: evaluates answers and optionally asks tailored follow-ups.
+- Per-question timer with optional stress mode (audio cues).
+- Offline/demo mode: no external APIs or keys required; uses local questions.
+- Resilient API: graceful fallbacks and helpful error messages.
 
--   **AI-powered Question Generation**: Dynamically generates relevant and challenging interview questions based on the user's chosen domain (e.g., AI, Software Engineering, Data Science).
--   **Real-time Feedback**: Provides immediate and comprehensive feedback on user answers, including suggestions for improvement and a scoring mechanism.
--   **Speech-to-Text Integration**: Allows users to speak their answers, which are then transcribed for evaluation.
--   **Interview Summary**: Offers a detailed summary of the interview session, including all questions asked, user answers, and AI feedback, enabling users to track their progress.
--   **User-friendly Interface**: A clean and intuitive interface built with React and Tailwind CSS for a seamless user experience.
+## Architecture
+- Frontend: React + Vite + Tailwind (`IntervAI/frontend`).
+- Backend: FastAPI + Uvicorn (`IntervAI/backend`).
+- Router: `app/main.py` registers `app/routes.py` and exposes `/interview/*` endpoints.
+- Local question bank and dynamic selection logic in `backend/app/routes.py`.
 
-## Technologies Used
+## Quick Start
+### Option A: Docker Compose
+- Requirements: Docker and Docker Compose.
+- From repo root:
+  - `docker-compose up --build`
+  - Frontend: `http://localhost:5173/`
+  - Backend: `http://localhost:8000/` and docs at `/docs`
 
-### Frontend
--   **React**: A JavaScript library for building user interfaces.
--   **Vite**: A fast build tool for modern web projects.
--   **Tailwind CSS**: A utility-first CSS framework for rapidly styling applications.
--   **Axios**: A promise-based HTTP client for making API requests.
--   **React Router DOM**: For declarative routing in React applications.
+### Option B: Local Dev
+- Requirements: Node.js ≥ 18, Python ≥ 3.11.
+- Backend:
+  - `cd IntervAI/backend`
+  - `./venv311/Scripts/python -m pip install -r requirements.txt`
+  - `./venv311/Scripts/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
+- Frontend:
+  - `cd IntervAI/frontend`
+  - `npm install`
+  - `npm run dev`
+  - Open `http://localhost:5173/`
 
-### Backend
--   **FastAPI**: A modern, fast (high-performance) web framework for building APIs with Python 3.7+ based on standard Python type hints.
--   **Uvicorn**: An ASGI server for FastAPI.
--   **Requests**: A simple, yet elegant, HTTP library for Python.
--   **OpenAI API**: Used for generating interview questions and evaluating answers.
+## Configuration
+- Frontend API base: `IntervAI/frontend/src/config.js`
+  - Uses `import.meta.env.VITE_API_BASE_URL` if set, else defaults to `http://localhost:8000`.
+- To override, create `.env` in `IntervAI/frontend`:
+  - `VITE_API_BASE_URL=http://localhost:8000`
+- Demo/Offline Mode:
+  - On the Setup page, enter `api_key` = `demo` (or `test`).
+  - Backend detects demo keys and uses the local question bank.
 
-### Infrastructure
--   **Docker**: For containerization of both frontend and backend services.
--   **Docker Compose**: For defining and running multi-container Docker applications.
+## API Endpoints (POST)
+- `/interview/start` — Form: `provider`, `api_key`, `domain`, `model?`, `difficulty`.
+- `/interview/question` — Form: `session_id`.
+- `/interview/answer` — Form: `session_id`, `answer`.
+- `/interview/followup` — Form: `session_id`.
+- `/interview/end` — Form: `session_id`.
+- `/interview/transcribe` — Form: `file`, `session_id`.
+- `/interview/restore` — Form: `session_id` (restore session state).
 
-## Folder Structure
+## Usage Tips
+- Start in demo mode to explore features without provider API keys.
+- Set a reasonable per-question time (e.g., 120s) and optionally enable stress mode.
+- Difficulty and per-question limit are shown in the interview header badges.
 
-```
-IntervAI/
-├── backend/                  # FastAPI backend application
-│   ├── app/                  # Core backend logic
-│   │   ├── __init__.py
-│   │   ├── main.py           # Main FastAPI application entry point
-│   │   ├── routes.py         # API routes for question generation and answer evaluation
-│   │   └── config.py         # Configuration settings
-│   ├── requirements.txt      # Python dependencies
-│   └── Dockerfile            # Dockerfile for the backend service
-├── frontend/                 # React frontend application
-│   ├── public/               # Static assets
-│   ├── src/                  # Frontend source code
-│   │   ├── App.jsx           # Main application component
-│   │   ├── index.jsx         # Entry point for the React app
-│   │   ├── pages/            # React components for different pages (Setup, Interview, Summary)
-│   │   ├── components/       # Reusable React components (Navbar, MicButton, MessageBubble)
-│   │   └── index.css         # Global CSS styles
-│   ├── package.json          # Frontend dependencies and scripts
-│   └── tailwind.config.js    # Tailwind CSS configuration
-├── docker-compose.yml        # Docker Compose file for setting up the development environment
-├── .env                      # Environment variables (e.g., OpenAI API Key)
-└── README.md                 # Project README file
-```
+## Troubleshooting
+- Connection refused (`ERR_CONNECTION_REFUSED`):
+  - Ensure backend is running: `http://localhost:8000/` must load.
+  - Confirm `VITE_API_BASE_URL` points to the correct host/port.
+- CORS: Enabled for all origins in backend (`app/main.py`).
+- Provider mismatch: If using non-demo keys, ensure the provider selection matches the key type.
+- Port conflicts: Make sure ports `5173` (frontend) and `8000` (backend) are free.
 
-## Setup Instructions
-
-To get a local copy up and running, follow these simple steps.
-
-### Prerequisites
-
-Before you begin, ensure you have the following installed:
--   Git
--   Node.js (LTS version recommended) and npm
--   Python 3.8+ and pip
--   Docker and Docker Compose (if you plan to use Docker)
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/Rajbharti06/IntervAI.git
-cd IntervAI
-```
-
-### 2. Environment Variables
-
-Create a `.env` file in the root directory of the project (`IntervAI/.env`) and add your OpenAI API key:
-
-```
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-### 3. Backend Setup
-
-Navigate to the `backend` directory, create a virtual environment, activate it, and install the Python dependencies:
-
-```bash
-cd backend
-python -m venv venv
-# On Windows
-.\venv\Scripts\activate
-# On macOS/Linux
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 4. Frontend Setup
-
-Navigate to the `frontend` directory and install the Node.js dependencies:
-
-```bash
-cd frontend
-npm install
-```
-
-## Running the Application
-
-You can run the application using Docker Compose for a fully containerized environment or by running the frontend and backend services separately.
-
-### Using Docker Compose (Recommended)
-
-From the root directory of the project (`IntervAI/`), run:
-
-```bash
-docker-compose up --build
-```
-
-This command will:
--   Build Docker images for both the frontend and backend services.
--   Start the backend service, accessible at `http://localhost:8000`.
--   Start the frontend service, accessible at `http://localhost:5173`.
-
-### Running Frontend and Backend Separately
-
-#### Backend
-
-Navigate to the `backend` directory, activate your virtual environment, and start the FastAPI application:
-
-```bash
-cd backend
-# Activate virtual environment (if not already active)
-# On Windows: .\venv\Scripts\activate
-# On macOS/Linux: source venv/bin/activate
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-The backend API will be available at `http://localhost:8000`.
-
-#### Frontend
-
-Navigate to the `frontend` directory and start the React development server:
-
-```bash
-cd frontend
-npm run dev
-```
-The frontend application will be accessible at `http://localhost:5173`.
-
-## API Endpoints
-
-The backend provides the following API endpoints:
-
--   **`/generate-question` (POST)**:
-    -   **Description**: Generates an interview question based on a specified domain using the OpenAI API.
-    -   **Request Body**:
-        ```json
-        {
-            "api_key": "YOUR_OPENAI_API_KEY",
-            "domain": "Software Engineering"
-        }
-        ```
-    -   **Response**:
-        ```json
-        {
-            "question": "What is the difference between a process and a thread?"
-        }
-        ```
-
--   **`/evaluate-answer` (POST)**:
-    -   **Description**: Evaluates a user's answer to an interview question and provides detailed feedback.
-    -   **Request Body**:
-        ```json
-        {
-            "api_key": "YOUR_OPENAI_API_KEY",
-            "question": "What is the difference between a process and a thread?",
-            "answer": "A process is an instance of a computer program that is being executed, while a thread is a segment of a process."
-        }
-        ```
-    -   **Response**:
-        ```json
-        {
-            "feedback": "Your answer is correct but could be more detailed. A process has its own memory space, while threads within the same process share memory. Score: 8/10"
-        }
-        ```
-
-## Contributing
-
-Contributions are welcome! Please feel free to fork the repository, create a new branch, and submit a pull request.
+## Tests
+- Backend tests in `IntervAI/backend/tests` for question diversity and models.
 
 ## License
+- Add your preferred license here.
 
-This project is licensed under the MIT License. See the `LICENSE` file for more details.
+## Acknowledgements
+- Built with FastAPI, React, Vite, Tailwind, and love for better interviews.

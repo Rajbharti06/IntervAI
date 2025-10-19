@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
+
 import axios from 'axios';
+
+import { API_BASE } from '../config';
 import { useNavigate } from 'react-router-dom';
 
 function Setup() {
@@ -7,6 +10,9 @@ function Setup() {
   const [apiKey, setApiKey] = useState('');
   const [domain, setDomain] = useState('Software Engineering');
   const [model, setModel] = useState('');
+  const [difficulty, setDifficulty] = useState('basic');
+  const [timeLimitSec, setTimeLimitSec] = useState(120);
+  const [stressMode, setStressMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const navigate = useNavigate();
@@ -15,14 +21,14 @@ function Setup() {
     { 
       id: 'openai', 
       name: 'OpenAI', 
-      icon: '🤖',
+      icon: '🧠',
       description: 'GPT-4, GPT-3.5 Turbo',
       popular: true
     },
     { 
       id: 'anthropic', 
       name: 'Anthropic', 
-      icon: '🧠',
+      icon: '🧩',
       description: 'Claude 3.5 Sonnet, Claude 3 Opus',
       popular: true
     },
@@ -57,6 +63,7 @@ function Setup() {
   ];
 
   const domains = [
+    // Technology & Engineering
     'Software Engineering',
     'Data Science',
     'Machine Learning',
@@ -66,9 +73,94 @@ function Setup() {
     'Backend Development',
     'Mobile Development',
     'Cybersecurity',
-    'Product Management',
     'System Design',
-    'Database Design'
+    'Database Design',
+    'Quality Assurance',
+    'Network Engineering',
+    'AI/ML Engineering',
+    
+    // Business & Management
+    'Product Management',
+    'Project Management',
+    'Business Analysis',
+    'Operations Management',
+    'Strategy Consulting',
+    'Business Development',
+    'Supply Chain Management',
+    'Risk Management',
+    
+    // Marketing & Sales
+    'Digital Marketing',
+    'Content Marketing',
+    'Social Media Marketing',
+    'Sales',
+    'Account Management',
+    'Brand Management',
+    'Market Research',
+    'SEO/SEM',
+    
+    // Finance & Accounting
+    'Financial Analysis',
+    'Investment Banking',
+    'Corporate Finance',
+    'Accounting',
+    'Financial Planning',
+    'Risk Analysis',
+    'Auditing',
+    'Tax',
+    
+    // Human Resources
+    'Human Resources',
+    'Talent Acquisition',
+    'Organizational Development',
+    'Compensation & Benefits',
+    'Employee Relations',
+    'Training & Development',
+    
+    // Design & Creative
+    'UX/UI Design',
+    'Graphic Design',
+    'Web Design',
+    'Product Design',
+    'Creative Direction',
+    'Content Creation',
+    'Video Production',
+    
+    // Healthcare & Life Sciences
+    'Healthcare Administration',
+    'Clinical Research',
+    'Pharmaceutical',
+    'Medical Device',
+    'Biotechnology',
+    'Public Health',
+    
+    // Legal & Compliance
+    'Legal',
+    'Compliance',
+    'Regulatory Affairs',
+    'Contract Management',
+    'Intellectual Property',
+    
+    // Customer Service & Support
+    'Customer Success',
+    'Customer Support',
+    'Technical Support',
+    'Client Relations',
+    
+    // Education & Training
+    'Education',
+    'Curriculum Development',
+    'Educational Technology',
+    
+    // Other Professional Fields
+    'Consulting',
+    'Research & Development',
+    'Logistics',
+    'Real Estate',
+    'Non-Profit',
+    'Government',
+    'Journalism',
+    'Public Relations'
   ];
 
   const providerPlaceholders = {
@@ -79,6 +171,12 @@ function Setup() {
     anthropic: 'e.g., claude-3-5-sonnet-20240620',
     together_ai: 'e.g., meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo'
   };
+
+  const difficultyOptions = [
+    { id: 'basic', name: 'Basic', desc: 'Foundational questions' },
+    { id: 'medium', name: 'Medium', desc: 'Intermediate complexity' },
+    { id: 'hard', name: 'Hard', desc: 'Advanced/challenging' }
+  ];
 
   const validateForm = () => {
     const newErrors = {};
@@ -110,11 +208,12 @@ function Setup() {
       formData.append('provider', provider);
       formData.append('api_key', apiKey);
       formData.append('domain', domain);
+      formData.append('difficulty', difficulty);
       if (model && model.trim().length > 0) {
         formData.append('model', model.trim());
       }
 
-      const response = await axios.post('http://localhost:8000/interview/start', formData, {
+      const response = await axios.post(API_BASE + '/interview/start', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -134,9 +233,28 @@ function Setup() {
         );
       } catch {}
 
-      // Navigate with state
+      // Persist extras and navigate with state
+      try {
+        const existing = localStorage.getItem('intervai_active_session');
+        const base = existing ? JSON.parse(existing) : {};
+        localStorage.setItem(
+          'intervai_active_session',
+          JSON.stringify({
+            ...base,
+            session_id,
+            provider,
+            domain,
+            model: usedModel,
+            difficulty,
+            timeLimitSec,
+            stressMode,
+            startedAt: base.startedAt || Date.now()
+          })
+        );
+      } catch {}
+
       navigate('/interview', { 
-        state: { session_id, provider, domain, model: usedModel } 
+        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode } 
       });
     } catch (error) {
       console.error('Error starting interview:', error);
@@ -303,6 +421,56 @@ function Setup() {
                 </p>
               </div>
 
+              {/* Difficulty Selection */}
+              <div>
+                <label className="form-label">Difficulty</label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {difficultyOptions.map((d) => (
+                    <div
+                      key={d.id}
+                      className={`cursor-pointer rounded-lg border-2 p-4 transition-all duration-200 ${
+                        difficulty === d.id ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-200' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                      onClick={() => setDifficulty(d.id)}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <span className="text-2xl">{d.id === 'basic' ? '🌱' : d.id === 'medium' ? '🌳' : '🌴'}</span>
+                        <div>
+                          <h3 className="font-medium text-gray-900">{d.name}</h3>
+                          <p className="text-sm text-gray-500">{d.desc}</p>
+                        </div>
+                      </div>
+                      <input type="radio" name="difficulty" value={d.id} checked={difficulty === d.id} onChange={() => setDifficulty(d.id)} className="sr-only" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Time Management */}
+              <div>
+                <label className="form-label">Time per Question</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={30}
+                      max={900}
+                      step={30}
+                      value={timeLimitSec}
+                      onChange={(e) => setTimeLimitSec(Math.max(30, Math.min(900, Number(e.target.value) || 120)))}
+                      className="form-input pr-16"
+                      placeholder="e.g., 120"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500">seconds</span>
+                  </div>
+                  <div className="flex items-center space-x-3 bg-gray-50 rounded-lg p-4">
+                    <input id="stressMode" type="checkbox" checked={stressMode} onChange={(e) => setStressMode(e.target.checked)} className="checkbox" />
+                    <label htmlFor="stressMode" className="text-sm text-gray-700">Enable Stress Mode (tick sounds, intense timer)</label>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">Set a realistic time limit to simulate pressure. Stress mode adds visual and audio cues.</p>
+              </div>
+
               {/* Error Display */}
               {errors.submit && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -381,3 +549,6 @@ function Setup() {
 }
 
 export default Setup;
+
+
+
