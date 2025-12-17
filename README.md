@@ -1,90 +1,277 @@
-# IntervAI
+# 🎤 IntervAI — Practice the Interview. Become the Candidate.
 
-An AI-powered mock interview platform with adaptive difficulty, offline/demo mode, and rich feedback. Frontend is React (Vite), backend is FastAPI. Supports multiple AI providers (OpenAI, Anthropic, Google, Perplexity, Groq, Together AI) and falls back to a local question bank when running demo mode.
+> **Old-school preparation, new-school intelligence.**
+> IntervAI is an AI-powered mock interview platform that doesn’t just ask questions — it *thinks with you*, adapts to you, and pushes you one level higher every round.
 
-## Highlights
-- Adaptive difficulty: foundational → intermediate → advanced based on performance.
-- Diverse question types: conceptual, practical, scenario, coding, behavioral.
-- Follow-ups and scoring: evaluates answers and optionally asks tailored follow-ups.
-- Per-question timer with optional stress mode (audio cues).
-- Offline/demo mode: no external APIs or keys required; uses local questions.
-- Resilient API: graceful fallbacks and helpful error messages.
+---
 
-## Screenshots
-- Setup Page
-  
-  ![Setup](docs/screenshots/setup.png)
+## 🧭 What is IntervAI?
 
-- Interview Page
-  
-  ![Interview](docs/screenshots/interview.png)
+**IntervAI** is a **realistic mock interview simulator** designed to feel like a tough-but-fair human interviewer.
 
-- Dashboard Page
-  
-  ![Dashboard](docs/screenshots/dashboard.png)
+Not flashy. Not gimmicky. Just sharp questions, honest feedback, and pressure that makes you better.
 
-## Architecture
-- Frontend: React + Vite + Tailwind (`IntervAI/frontend`).
-- Backend: FastAPI + Uvicorn (`IntervAI/backend`).
-- Router: `app/main.py` registers `app/routes.py` and exposes `/interview/*` endpoints.
-- Local question bank and dynamic selection logic in `backend/app/routes.py`.
+Think of IntervAI as:
 
-## Quick Start
-### Option A: Docker Compose
-- Requirements: Docker and Docker Compose.
-- From repo root:
-  - `docker-compose up --build`
-  - Frontend: `http://localhost:5173/`
-  - Backend: `http://localhost:8000/` and docs at `/docs`
+* 🧠 a **practice room** before the real room
+* 🎯 a **coach** that adjusts difficulty as you grow
+* ⏱️ a **stress trainer** when you want realism
+* 📊 a **mirror** that shows where you truly stand
 
-### Option B: Local Dev
-- Requirements: Node.js ≥ 18, Python ≥ 3.11.
-- Backend:
-  - `cd IntervAI/backend`
-  - `./venv311/Scripts/python -m pip install -r requirements.txt`
-  - `./venv311/Scripts/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
-- Frontend:
-  - `cd IntervAI/frontend`
-  - `npm install`
-  - `npm run dev`
-  - Open `http://localhost:5173/`
+Built for engineers, students, and serious candidates.
 
-## Configuration
-- Frontend API base: `IntervAI/frontend/src/config.js`
-  - Uses `import.meta.env.VITE_API_BASE_URL` if set, else defaults to `http://localhost:8000`.
-- To override, create `.env` in `IntervAI/frontend`:
-  - `VITE_API_BASE_URL=http://localhost:8000`
-- Demo/Offline Mode:
-  - On the Setup page, enter `api_key` = `demo` (or `test`).
-  - Backend detects demo keys and uses the local question bank.
+---
 
-## API Endpoints (POST)
-- `/interview/start` — Form: `provider`, `api_key`, `domain`, `model?`, `difficulty`.
-- `/interview/question` — Form: `session_id`.
-- `/interview/answer` — Form: `session_id`, `answer`.
-- `/interview/followup` — Form: `session_id`.
-- `/interview/end` — Form: `session_id`.
-- `/interview/transcribe` — Form: `file`, `session_id`.
-- `/interview/restore` — Form: `session_id` (restore session state).
+## ✨ Core Philosophy
 
-## Usage Tips
-- Start in demo mode to explore features without provider API keys.
-- Set a reasonable per-question time (e.g., 120s) and optionally enable stress mode.
-- Difficulty and per-question limit are shown in the interview header badges.
+* **Preparation beats luck** — interviews reward clarity, not chance
+* **Difficulty should adapt** — growth lives just past comfort
+* **Offline-first matters** — learning shouldn’t depend on APIs
+* **Feedback > fancy UI** — insight is the real feature
+* **Respect the classics** — structured interviews still win
 
-## Troubleshooting
-- Connection refused (`ERR_CONNECTION_REFUSED`):
-  - Ensure backend is running: `http://localhost:8000/` must load.
-  - Confirm `VITE_API_BASE_URL` points to the correct host/port.
-- CORS: Enabled for all origins in backend (`app/main.py`).
-- Provider mismatch: If using non-demo keys, ensure the provider selection matches the key type.
-- Port conflicts: Make sure ports `5173` (frontend) and `8000` (backend) are free.
+IntervAI is not about shortcuts.
+It’s about **showing up ready**.
 
-## Tests
-- Backend tests in `IntervAI/backend/tests` for question diversity and models.
+---
 
-## License
-- Add your preferred license here.
+## 🚀 Highlights
 
-## Acknowledgements
-- Built with FastAPI, React, Vite, Tailwind, and love for better interviews.
+* 📈 **Adaptive difficulty** — foundational → intermediate → advanced
+* 🧩 **Diverse question types**:
+
+  * Conceptual
+  * Practical
+  * Scenario-based
+  * Coding
+  * Behavioral
+* 🔁 **Smart follow-ups** based on your answers
+* 🧮 **Answer evaluation & scoring** per question
+* ⏱️ **Per-question timer** with optional **stress mode** (audio cues)
+* 📴 **Offline / Demo mode** — no API keys required
+* 🛟 **Resilient backend** with graceful fallbacks
+
+---
+
+## 📸 Screenshots
+
+### Setup Page
+
+![Setup](docs/screenshots/setup.png)
+
+### Interview Page
+
+![Interview](docs/screenshots/interview.png)
+
+### Dashboard Page
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+---
+
+## 🏗️ Architecture Overview
+
+* **Frontend**: React + Vite + Tailwind
+  `IntervAI/frontend`
+
+* **Backend**: FastAPI + Uvicorn
+  `IntervAI/backend`
+
+* **Routing**:
+
+  * `app/main.py` → registers routes
+  * `app/routes.py` → `/interview/*` endpoints
+
+* **Logic**:
+
+  * Adaptive difficulty engine
+  * Local question bank for demo/offline mode
+  * Provider-agnostic LLM interface
+
+---
+
+## ⚡ Quick Start
+
+### Option A: Docker (Recommended)
+
+**Requirements**: Docker, Docker Compose
+
+```bash
+docker-compose up --build
+```
+
+* Frontend: [http://localhost:5173/](http://localhost:5173/)
+* Backend: [http://localhost:8000/](http://localhost:8000/)
+* API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+### Option B: Local Development
+
+**Requirements**:
+
+* Node.js ≥ 18
+* Python ≥ 3.11
+
+#### Backend
+
+```bash
+cd IntervAI/backend
+./venv311/Scripts/python -m pip install -r requirements.txt
+./venv311/Scripts/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### Frontend
+
+```bash
+cd IntervAI/frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```
+http://localhost:5173/
+```
+
+---
+
+## 🔌 AI Providers Supported
+
+IntervAI supports **multiple AI providers** out of the box:
+
+* OpenAI
+* Anthropic
+* Google
+* Perplexity
+* Groq
+* Together AI
+
+### 📴 Demo / Offline Mode
+
+No keys? No problem.
+
+On the **Setup page**:
+
+* Set `api_key = demo` (or `test`)
+* IntervAI automatically switches to the **local question bank**
+
+Perfect for:
+
+* Demos
+* Hackathons
+* Offline practice
+* Zero-cost testing
+
+---
+
+## 🔧 Configuration
+
+### Frontend API Base
+
+`IntervAI/frontend/src/config.js`
+
+Uses:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+Create `.env` in `IntervAI/frontend` to override defaults.
+
+---
+
+## 📡 API Endpoints (POST)
+
+* `/interview/start` — start a new interview session
+* `/interview/question` — fetch next question
+* `/interview/answer` — submit answer & get evaluation
+* `/interview/followup` — request tailored follow-up
+* `/interview/end` — end interview & generate summary
+* `/interview/transcribe` — speech-to-text input
+* `/interview/restore` — restore previous session
+
+---
+
+## 🎯 Usage Tips
+
+* Start in **demo mode** to understand the flow
+* Use **120s/question** for realistic pacing
+* Enable **stress mode** once fundamentals are solid
+* Watch difficulty badges — they don’t lie
+
+---
+
+## 🧪 Troubleshooting
+
+**ERR_CONNECTION_REFUSED**
+
+* Backend must be running on `http://localhost:8000`
+
+**CORS issues**
+
+* CORS is enabled for all origins by default
+
+**Provider mismatch**
+
+* Ensure provider matches API key type
+
+**Port conflicts**
+
+* Ensure ports `5173` and `8000` are free
+
+---
+
+## 🧪 Tests
+
+Backend tests live in:
+
+```
+IntervAI/backend/tests
+```
+
+Covers:
+
+* Question diversity
+* Difficulty transitions
+* Model/provider logic
+
+---
+
+## 🛣️ Roadmap
+
+* 🎙️ Full voice-first interviews
+* 📊 Session analytics & performance trends
+* 🧠 Resume-based question generation
+* 🪜 Company-specific interview tracks
+* 📱 Mobile-friendly interview mode
+
+---
+
+## 🤍 Who This Is For
+
+* Students preparing for placements
+* Engineers grinding system design
+* Candidates tired of vague prep advice
+* Anyone who wants **honest interview practice**
+
+---
+
+## 📜 License
+
+Add your preferred license.
+
+---
+
+## 🌌 Final Note
+
+Interviews reward clarity, not confidence alone.
+
+IntervAI exists to help you:
+
+* think clearly
+* speak precisely
+* and walk into interviews already tested
+
+Practice here — perform out there.
