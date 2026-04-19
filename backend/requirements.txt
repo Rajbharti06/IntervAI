@@ -8,3 +8,6 @@ gTTS
 langchain-openai
 langchain-anthropic
 langchain-google-genai
+pypdf
+python-docx
+aiofiles

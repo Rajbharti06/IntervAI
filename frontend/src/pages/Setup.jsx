@@ -13,6 +13,10 @@ function Setup() {
   const [difficulty, setDifficulty] = useState('basic');
   const [timeLimitSec, setTimeLimitSec] = useState(120);
   const [stressMode, setStressMode] = useState(false);
+  const [topics, setTopics] = useState('');
+  const [companyTrack, setCompanyTrack] = useState('');
+  const [interviewType, setInterviewType] = useState('general');
+  const [tracks, setTracks] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const navigate = useNavigate();
@@ -53,12 +57,19 @@ function Setup() {
       description: 'Fast inference models',
       popular: false
     },
-    { 
-      id: 'together_ai', 
-      name: 'Together AI', 
+    {
+      id: 'together_ai',
+      name: 'Together AI',
       icon: '🤝',
       description: 'Open source models',
       popular: false
+    },
+    {
+      id: 'nvidia',
+      name: 'NVIDIA NIM',
+      icon: '⚙️',
+      description: 'Llama 3.1 70B, Nemotron',
+      popular: true
     }
   ];
 
@@ -169,7 +180,8 @@ function Setup() {
     grok: 'e.g., llama-3.3-70b-versatile',
     google: 'e.g., gemini-1.5-pro, gemini-1.5-flash',
     anthropic: 'e.g., claude-3-5-sonnet-20240620',
-    together_ai: 'e.g., meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo'
+    together_ai: 'e.g., meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+    nvidia: 'e.g., meta/llama-3.1-70b-instruct, nvidia/llama-3.1-nemotron-70b-instruct'
   };
 
   const difficultyOptions = [
@@ -212,6 +224,15 @@ function Setup() {
       if (model && model.trim().length > 0) {
         formData.append('model', model.trim());
       }
+      if (topics && topics.trim().length > 0) {
+        formData.append('topics', topics.trim());
+      }
+      if (companyTrack) {
+        formData.append('company_track', companyTrack);
+      }
+      if (interviewType) {
+        formData.append('interview_type', interviewType);
+      }
 
       const response = await axios.post(API_BASE + '/interview/start', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -253,8 +274,8 @@ function Setup() {
         );
       } catch {}
 
-      navigate('/interview', { 
-        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode } 
+      navigate('/interview', {
+        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode, company_track: companyTrack, interview_type: interviewType, track_info: response.data.track_info }
       });
     } catch (error) {
       console.error('Error starting interview:', error);
@@ -264,6 +285,14 @@ function Setup() {
       setIsLoading(false);
     }
   };
+
+  // Load available company tracks
+  useEffect(() => {
+    fetch(API_BASE + '/tracks')
+      .then(r => r.json())
+      .then(d => setTracks(d.tracks || []))
+      .catch(() => {});
+  }, []);
 
   // Check for existing session on mount
   useEffect(() => {
@@ -404,6 +433,73 @@ function Setup() {
                 {errors.domain && (
                   <p className="mt-1 text-sm text-red-600">{errors.domain}</p>
                 )}
+              </div>
+
+              {/* Company Track */}
+              <div>
+                <label className="form-label">Company Track (Optional)</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div
+                    className={`cursor-pointer rounded-lg border-2 p-3 text-center transition-all duration-200 ${!companyTrack ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'}`}
+                    onClick={() => setCompanyTrack('')}
+                  >
+                    <div className="text-xl mb-1">🎯</div>
+                    <div className="text-xs font-medium text-gray-700">General</div>
+                  </div>
+                  {tracks.map(t => (
+                    <div
+                      key={t.id}
+                      className={`cursor-pointer rounded-lg border-2 p-3 text-center transition-all duration-200 ${companyTrack === t.id ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                      onClick={() => setCompanyTrack(t.id)}
+                    >
+                      <div className="text-xl mb-1">{t.icon}</div>
+                      <div className="text-xs font-medium text-gray-700">{t.name}</div>
+                    </div>
+                  ))}
+                </div>
+                {companyTrack && tracks.find(t => t.id === companyTrack) && (
+                  <p className="mt-2 text-xs text-blue-700 bg-blue-50 rounded-lg px-3 py-2">
+                    {tracks.find(t => t.id === companyTrack)?.style}
+                  </p>
+                )}
+              </div>
+
+              {/* Interview Type */}
+              <div>
+                <label className="form-label">Interview Type</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { id: 'general', label: 'General', icon: '🎯' },
+                    { id: 'technical', label: 'Technical', icon: '💻' },
+                    { id: 'behavioral', label: 'Behavioral', icon: '🤝' },
+                    { id: 'system_design', label: 'System Design', icon: '🏗️' },
+                  ].map(t => (
+                    <div
+                      key={t.id}
+                      className={`cursor-pointer rounded-lg border-2 p-3 text-center transition-all duration-200 ${interviewType === t.id ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-200' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                      onClick={() => setInterviewType(t.id)}
+                    >
+                      <div className="text-xl mb-1">{t.icon}</div>
+                      <div className="text-xs font-medium text-gray-700">{t.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Topics Override */}
+              <div>
+                <label className="form-label">Specific Topics (Optional)</label>
+                <input
+                  type="text"
+                  value={topics}
+                  onChange={(e) => setTopics(e.target.value)}
+                  className="form-input"
+                  placeholder="e.g., Python, Data Structures, System Design, SQL"
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  Comma-separated topics you want to be tested on. Leave empty to let the AI cover the full domain.
+                  The AI will adapt and rotate through these topics during the interview.
+                </p>
               </div>
 
               {/* Model Override */}

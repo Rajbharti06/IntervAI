@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import SpeechAnalysisCard from './SpeechAnalysisCard';
 
 function formatTime(timestamp) {
   try {
@@ -107,8 +108,9 @@ function renderContent(content, type) {
 }
 
 export default function MessageBubble({ message }) {
-  const { type, content, score, timestamp } = message;
+  const { type, content, score, timestamp, analysis } = message;
   const isUser = type === 'answer';
+  const [analysisOpen, setAnalysisOpen] = useState(false);
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
@@ -152,6 +154,17 @@ export default function MessageBubble({ message }) {
           </div>
         )}
       </div>
+
+      {/* Speech Analysis Card — shown under user answers that have analysis data */}
+      {isUser && analysis && (
+        <div className="w-full mt-1 ml-11">
+          <SpeechAnalysisCard
+            analysis={analysis}
+            isOpen={analysisOpen}
+            onToggle={() => setAnalysisOpen(v => !v)}
+          />
+        </div>
+      )}
     </div>
   );
 }

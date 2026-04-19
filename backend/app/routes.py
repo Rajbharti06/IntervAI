@@ -6,6 +6,7 @@ import uuid
 import re
 import json
 import random
+from . import soul_engine, document_engine, speech_analyzer, gamification, company_tracks
 
 app = FastAPI()
 
@@ -489,6 +490,11 @@ API_CONFIGS = {
         "base_url": "https://api.together.xyz/v1",
         "default_model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
     },
+    "nvidia": {
+        "api_key": None,
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "default_model": "meta/llama-3.1-70b-instruct",
+    },
 }
 
 
@@ -523,6 +529,8 @@ def infer_provider_from_key(api_key: str) -> str:
         return "perplexity"
     if api_key.startswith("gsk_"):
         return "grok"
+    if api_key.startswith("nvapi-"):
+        return "nvidia"
     # For other keys, return unknown to avoid validation errors
     return "unknown"
 
@@ -563,12 +571,11 @@ def _generate_local_question(session: dict, session_id: str) -> str:
     return samples[idx]
 
 @router.post("/interview/start")
-def start_interview(provider: str = Form(...), api_key: str = Form(...), domain: str = Form(...), model: str | None = Form(None), difficulty: str = Form("basic")):
+def start_interview(provider: str = Form(...), api_key: str = Form(...), domain: str = Form(...), model: str | None = Form(None), difficulty: str = Form("basic"), topics: str | None = Form(None), company_track: str | None = Form(None), interview_type: str | None = Form(None)):
     if not api_key:
         raise HTTPException(status_code=400, detail="API key cannot be empty")
     if provider not in API_CONFIGS:
         raise HTTPException(status_code=400, detail=f"Invalid API provider: {provider}")
-    # Validate difficulty value
     diff_val = (difficulty or "basic").strip().lower()
     if diff_val not in DIFFICULTY_LEVELS:
         raise HTTPException(status_code=400, detail=f"Invalid difficulty: {difficulty}. Choose one of {DIFFICULTY_LEVELS}")
@@ -577,27 +584,62 @@ def start_interview(provider: str = Form(...), api_key: str = Form(...), domain:
     print(f"DEBUG: api_key='{api_key}', provider='{provider}', inferred='{inferred}'")
     if inferred != "unknown" and inferred != provider:
         raise HTTPException(status_code=400, detail=f"The provided API key appears to be for '{inferred}', but provider '{provider}' was selected. Please select the correct provider or use a matching key.")
-    
-    session_id = str(uuid.uuid4())
 
-    # Decide model: user-provided or provider default
+    session_id = str(uuid.uuid4())
     chosen_model = (model or '').strip() or get_default_model(provider)
-    
+
+    # Parse comma-separated topics supplied by the user
+    topic_list: list[str] = []
+    if topics:
+        topic_list = [t.strip() for t in topics.split(",") if t.strip()]
+    if not topic_list:
+        topic_list = [domain]
+
+    # Initialize the soul engine profile for this candidate
+    profile = soul_engine.default_profile(domain, topic_list)
+    profile["current_difficulty"] = diff_val
+
+    # Validate company track
+    track_id = (company_track or "").strip().lower() or None
+    track_data = company_tracks.get_track(track_id) if track_id else None
+
+    # If a company track is selected, override topics with track focus areas
+    if track_data and not topic_list:
+        topic_list = track_data["focus"][:6]
+    if track_data:
+        profile["topics"] = topic_list
+
     active_sessions[session_id] = {
         "provider": provider,
-        "api_key": api_key,  # Store the API key in the session
+        "api_key": api_key,
         "domain": domain,
         "model": chosen_model,
         "difficulty": diff_val,
+        "topics": topic_list,
+        "company_track": track_id,
+        "interview_type": (interview_type or "general").strip().lower(),
         "questions_asked": [],
         "answers_given": [],
         "feedback_received": [],
         "qa_pairs": [],
         "weak_areas": {},
         "scores_10": [],
-        "last_score_10": None
+        "last_score_10": None,
+        "soul_profile": profile,
+        "analysis_history": [],
     }
-    return {"message": "Interview session started", "session_id": session_id, "provider": provider, "domain": domain, "model": chosen_model, "difficulty": diff_val}
+    return {
+        "message": "Interview session started",
+        "session_id": session_id,
+        "provider": provider,
+        "domain": domain,
+        "model": chosen_model,
+        "difficulty": diff_val,
+        "topics": topic_list,
+        "company_track": track_id,
+        "interview_type": active_sessions[session_id]["interview_type"],
+        "track_info": {"name": track_data["name"], "style": track_data["style"], "tips": track_data["tips"]} if track_data else None,
+    }
 
 @router.post("/interview/question")
 def get_interview_question(session_id: str = Form(...)):
@@ -615,11 +657,24 @@ def get_interview_question(session_id: str = Form(...)):
     }.get(eff, 'foundational/basic')
     qtype = _select_question_type(eff, last, session)
 
+    # Company track: try fetching a track-specific question first
+    track_id = session.get("company_track")
+    if track_id:
+        eff_for_track = session.get("soul_profile", {}).get("current_difficulty", "medium")
+        asked_set = set(session.get("questions_asked", []))
+        track_q = company_tracks.get_track_question(track_id, eff_for_track, asked_set)
+        if track_q and not _is_repeat(session, track_q):
+            _note_session_question(session, track_q)
+            session.setdefault("questions_asked", []).append(track_q)
+            session["current_question"] = track_q
+            session.setdefault("type_counts", {})
+            session["type_counts"]["track"] = session["type_counts"].get("track", 0) + 1
+            return {"question": track_q, "source": "company_track"}
+
     # Offline/demo mode: return a locally generated question without calling external APIs
     if _is_offline_demo(session):
         q = _generate_local_question_with_difficulty(session, session_id)
         session.setdefault('questions_asked', []).append(q)
-        # track last question for naive evaluation
         session['current_question'] = q
         return {"question": q}
 
@@ -634,15 +689,22 @@ def get_interview_question(session_id: str = Form(...)):
 
     model = session.get('model') or get_default_model(provider)
 
+    # Build soul-engine-enhanced prompt
+    soul_prompt = soul_engine.build_question_prompt(
+        profile=session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General")),
+        question_number=len(session.get("questions_asked", [])) + 1,
+        last_score=session.get("last_score_10"),
+    )
+
     # Branch per provider
     question = None
     try:
-        if provider in {"openai", "perplexity", "grok", "together_ai"}:
+        if provider in {"openai", "perplexity", "grok", "together_ai", "nvidia"}:
             api_url = config["base_url"] + "/chat/completions"
             headers = {"Authorization": f"Bearer {session['api_key']}", "Content-Type": "application/json"}
             payload = {
                 "model": model,
-                "messages": [{"role": "user", "content": f"Ask me one {eff_tag} {qtype} interview question about {session['domain']}."}]
+                "messages": [{"role": "user", "content": soul_prompt}]
             }
             res = requests.post(api_url, headers=headers, json=payload, timeout=30)
             try:
@@ -667,9 +729,9 @@ def get_interview_question(session_id: str = Form(...)):
             }
             payload = {
                 "model": model,
-                "max_tokens": 256,
+                "max_tokens": 512,
                 "messages": [
-                    {"role": "user", "content": f"Ask me one {eff_tag} {qtype} interview question about {session['domain']}"}
+                    {"role": "user", "content": soul_prompt}
                 ]
             }
             res = requests.post(api_url, headers=headers, json=payload, timeout=30)
@@ -687,12 +749,11 @@ def get_interview_question(session_id: str = Form(...)):
                 if _is_repeat(session, question):
                     question = _generate_local_question_with_difficulty(session, session_id)
         elif provider == "google":
-            # Google Generative Language (Gemini)
             api_url = config["base_url"] + f"/models/{model}:generateContent"
             headers = {"Content-Type": "application/json"}
             payload = {
                 "contents": [
-                    {"parts": [{"text": f"Ask me one {eff_tag} {qtype} interview question about {session['domain']}"}]}
+                    {"parts": [{"text": soul_prompt}]}
                 ]
             }
             res = requests.post(api_url, headers=headers, params={"key": session['api_key']}, json=payload, timeout=30)
@@ -769,20 +830,32 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
             f"A strong answer to the question \"{question}\" would typically cover: a clear definition, key concepts, trade-offs, "
             f"a concise real-world example, and best practices related to {domain}."
         )
+        # Speech analysis runs in all modes
+        interview_type_local = session.get("interview_type", "general")
+        analysis_local = speech_analyzer.analyze(user_answer, question_type=interview_type_local)
+        analysis_dict_local = speech_analyzer.to_dict(analysis_local)
+
         session.setdefault('qa_pairs', []).append({
             'question': question,
             'user_answer': user_answer,
             'score': score,
             'verdict': verdict,
             'feedback': feedback,
-            'correct_answer': correct_answer
+            'correct_answer': correct_answer,
+            'analysis': analysis_dict_local,
         })
         session.setdefault('answers_given', []).append(user_answer)
         session.setdefault('feedback_received', []).append(feedback)
-        # Track score history and last score for adaptive difficulty
         session.setdefault('scores_10', []).append(score)
+        session.setdefault('analysis_history', []).append(analysis_dict_local)
         session['last_score_10'] = score
-        # Track weak areas in a very naive way
+
+        # Update soul profile in offline mode too
+        if "soul_profile" in session:
+            session["soul_profile"] = soul_engine.update_profile(
+                session["soul_profile"], score, topic=session.get("domain")
+            )
+
         weak_map = session.setdefault('weak_areas', {})
         topic = (session.get('domain') or 'General').strip() or 'General'
         if score < 8:
@@ -795,7 +868,8 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
             'score': score,
             'verdict': verdict,
             'feedback': feedback,
-            'correct_answer': correct_answer
+            'correct_answer': correct_answer,
+            'analysis': analysis_dict_local,
         }
 
     provider = session['provider']
@@ -806,19 +880,24 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
     model = session.get('model') or get_default_model(provider)
 
     try:
-        if provider in {"openai", "perplexity", "grok", "together_ai"}:
+        if provider in {"openai", "perplexity", "grok", "together_ai", "nvidia"}:
             api_url = config["base_url"] + "/chat/completions"
             headers = {"Authorization": f"Bearer {session['api_key']}", "Content-Type": "application/json"}
             prompt_user = (
+                "Evaluate this interview Q&A. Respond with ONLY a JSON object — no markdown, no preamble, no explanation.\n"
+                "JSON schema: {\"score\": <integer 1-10>, \"verdict\": \"Correct|Partially Correct|Incorrect\", "
+                "\"feedback\": \"<2-3 sentence evaluation>\", \"correct_answer\": \"<concise model answer>\"}\n\n"
                 f"Question: {session.get('current_question', 'Unknown')}\n"
-                f"Answer: {answer}\n"
-                "Return JSON with fields: score (1-10 number), verdict (string), feedback (string), correct_answer (string). "
-                "If the answer is empty, too short, or off-topic, set score to 1 and provide a concise, authoritative model answer in correct_answer."
+                f"Candidate answer: {answer}\n\n"
+                "Output the JSON object now:"
             )
             payload = {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": "You are an expert interviewer. Score answers 1-10, provide concise feedback and a clear verdict (Correct/Partially Correct/Incorrect)."},
+                    {"role": "system", "content": (
+                        "You are an expert technical interviewer who evaluates candidate answers. "
+                        "Always respond with a single JSON object only. Never add text before or after the JSON."
+                    )},
                     {"role": "user", "content": prompt_user}
                 ]
             }
@@ -861,7 +940,12 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
             try:
                 choice = response_data['choices'][0]['message']
                 content = choice.get('content') if isinstance(choice, dict) else None
-                data = json.loads(content) if content else {}
+                # Strip markdown code fences if present (```json ... ```)
+                raw_content = (content or '').strip()
+                if raw_content.startswith('```'):
+                    raw_content = re.sub(r'^```[a-z]*\n?', '', raw_content)
+                    raw_content = re.sub(r'\n?```$', '', raw_content).strip()
+                data = json.loads(raw_content) if raw_content else {}
                 score = int(data.get('score', 0))
                 # Normalize to 1–10 scale if provider returned 0–100
                 if score > 10:
@@ -873,10 +957,34 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
                 correct_answer = data.get('correct_answer', '')
             except Exception:
                 text = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
-                score = 70
-                verdict = 'Partially Correct'
-                feedback = text.strip()[:400] or 'Could not parse structured feedback.'
-                correct_answer = ''
+                data = {}
+                # Try 1: find embedded JSON object
+                try:
+                    m = re.search(r'\{.*?"score".*?\}', text, re.DOTALL)
+                    if m:
+                        data = json.loads(m.group())
+                except Exception:
+                    pass
+                # Try 2: parse plain-text "Score: X\nVerdict: Y\nFeedback: Z" format
+                if not data:
+                    try:
+                        sm = re.search(r'[Ss]core[:\s]+(\d+)', text)
+                        vm = re.search(r'[Vv]erdict[:\s]+([^\n]+)', text)
+                        fm = re.search(r'[Ff]eedback[:\s]+([^\n]+(?:\n(?![A-Z])[^\n]+)*)', text)
+                        cm = re.search(r'[Cc]orrect[_ ][Aa]nswer[:\s]+([^\n]+(?:\n(?![A-Z])[^\n]+)*)', text)
+                        if sm:
+                            data = {
+                                "score": int(sm.group(1)),
+                                "verdict": (vm.group(1).strip() if vm else "Partially Correct"),
+                                "feedback": (fm.group(1).strip() if fm else text[:300]),
+                                "correct_answer": (cm.group(1).strip() if cm else ""),
+                            }
+                    except Exception:
+                        pass
+                score = max(1, min(10, int(data.get('score', 5))))
+                verdict = data.get('verdict', 'Partially Correct')
+                feedback = data.get('feedback', text.strip()[:400] or 'Could not parse structured feedback.')
+                correct_answer = data.get('correct_answer', '')
         elif provider == "anthropic":
             api_url = config["base_url"] + "/messages"
             headers = {
@@ -973,24 +1081,39 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Upstream request failed: {str(e)}")
 
+    # Run speech/text analysis on the answer
+    interview_type = session.get("interview_type", "general")
+    analysis = speech_analyzer.analyze(answer, question_type=interview_type)
+    analysis_dict = speech_analyzer.to_dict(analysis)
+
     session.setdefault('qa_pairs', []).append({
         'question': session.get('current_question', ''),
         'user_answer': answer,
         'score': score,
         'verdict': verdict,
         'feedback': feedback,
-        'correct_answer': correct_answer
+        'correct_answer': correct_answer,
+        'analysis': analysis_dict,
     })
     session.setdefault('answers_given', []).append(answer)
     session.setdefault('feedback_received', []).append(feedback)
     session.setdefault('scores_10', []).append(score)
+    session.setdefault('analysis_history', []).append(analysis_dict)
     session['last_score_10'] = score
+
+    # Update soul engine profile
+    if "soul_profile" in session:
+        session["soul_profile"] = soul_engine.update_profile(
+            session["soul_profile"], score, topic=session.get("domain")
+        )
+        session["difficulty"] = session["soul_profile"]["current_difficulty"]
 
     return {
         'score': score,
         'verdict': verdict,
         'feedback': feedback,
-        'correct_answer': correct_answer
+        'correct_answer': correct_answer,
+        'analysis': analysis_dict,
     }
 
 @router.post("/interview/followup")
@@ -1045,7 +1168,7 @@ def generate_followup(session_id: str = Form(...)):
     }.get(eff, 'foundational/basic')
 
     try:
-        if provider in {"openai", "perplexity", "grok", "together_ai"}:
+        if provider in {"openai", "perplexity", "grok", "together_ai", "nvidia"}:
             api_url = config["base_url"] + "/chat/completions"
             headers = {"Authorization": f"Bearer {session['api_key']}", "Content-Type": "application/json"}
             prompt = (
@@ -1146,24 +1269,188 @@ def end_interview(session_id: str = Form(...)):
         raise HTTPException(status_code=404, detail="Session not found or already ended")
 
     qa_pairs = session.get('qa_pairs', [])
+    analysis_history = session.get('analysis_history', [])
+
     if not qa_pairs:
         return {"summary": {
             "overall_score": 0,
             "weak_areas": [],
             "qa_pairs": [],
-            "subject": session.get('domain', 'Unknown')
+            "subject": session.get('domain', 'Unknown'),
+            "gamification": None,
         }}
 
     scores = [p.get('score', 0) for p in qa_pairs]
-    overall = sum(scores) / max(len(scores), 1)
+    overall = round(sum(scores) / max(len(scores), 1), 1)
     weak_areas = session.get('weak_areas') or {}
 
+    # Build gamification summary
+    game_summary = gamification.build_session_summary(session, analysis_history)
+
+    # Aggregate communication stats
+    comm_stats = {}
+    if analysis_history:
+        comm_stats = {
+            "avg_filler_rate": round(sum(a.get("filler_rate_pct", 0) for a in analysis_history) / len(analysis_history), 1),
+            "avg_confidence_score": round(sum(a.get("confidence_score", 0) for a in analysis_history) / len(analysis_history), 1),
+            "avg_clarity_score": round(sum(a.get("clarity_score", 0) for a in analysis_history) / len(analysis_history), 1),
+            "avg_word_count": round(sum(a.get("word_count", 0) for a in analysis_history) / len(analysis_history)),
+            "star_answers": sum(1 for a in analysis_history if a.get("is_star_answer")),
+            "top_fillers": _most_common_fillers(analysis_history),
+        }
+
     return {"summary": {
-        "overall_score": round(overall, 1),
+        "overall_score": overall,
         "weak_areas": weak_areas if weak_areas else [],
         "qa_pairs": qa_pairs,
-        "subject": session.get('domain', 'Unknown')
+        "subject": session.get('domain', 'Unknown'),
+        "company_track": session.get("company_track"),
+        "interview_type": session.get("interview_type", "general"),
+        "gamification": game_summary,
+        "communication_stats": comm_stats,
     }}
+
+
+def _most_common_fillers(analysis_list: list[dict]) -> list[str]:
+    from collections import Counter
+    all_fillers: list[str] = []
+    for a in analysis_list:
+        all_fillers.extend(a.get("filler_words", []))
+    counts = Counter(all_fillers)
+    return [w for w, _ in counts.most_common(5)]
+
+@router.post("/interview/upload_document")
+async def upload_document(file: UploadFile = File(...), session_id: str = Form(...)):
+    """
+    Upload a PDF, DOCX, or TXT file during or before an interview.
+    The extracted text is stored in the session's soul profile so the AI
+    will generate questions directly from the document's content.
+    """
+    session = active_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    filename = file.filename or ""
+    allowed = (".pdf", ".docx", ".txt", ".md")
+    if not any(filename.lower().endswith(ext) for ext in allowed):
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {', '.join(allowed)}")
+
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 5 MB.")
+
+    extracted = document_engine.extract_text(filename, raw)
+    if not extracted or len(extracted) < 50:
+        raise HTTPException(status_code=422, detail="Could not extract readable text from the file.")
+
+    summary = document_engine.summarize_document(extracted, max_chars=4000)
+    topics = document_engine.extract_key_topics(extracted)
+
+    # Store in soul profile so question prompts use it
+    if "soul_profile" not in session:
+        session["soul_profile"] = soul_engine.default_profile(session.get("domain", "General"))
+    session["soul_profile"]["document_context"] = summary
+    if topics:
+        existing = session["soul_profile"].get("topics", [])
+        merged = list(dict.fromkeys(existing + topics))
+        session["soul_profile"]["topics"] = merged[:15]
+
+    return {
+        "message": "Document uploaded and analysed. Questions will now draw from its content.",
+        "filename": filename,
+        "extracted_length": len(extracted),
+        "detected_topics": topics,
+    }
+
+
+@router.post("/interview/growth_plan")
+def get_growth_plan(session_id: str = Form(...)):
+    """
+    Generate a personalized 7-day growth plan for the candidate based on
+    their soul profile and interview history. Does NOT end the session.
+    """
+    session = active_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
+    qa_pairs = session.get("qa_pairs", [])
+
+    if not qa_pairs:
+        return {"growth_plan": soul_engine.parse_growth_plan_json("")}
+
+    if _is_offline_demo(session):
+        plan = {
+            "overall_assessment": "Great effort! Keep practicing the fundamentals and build up from there.",
+            "top_strengths": ["Willingness to attempt all questions", "Basic understanding of concepts"],
+            "top_gaps": ["Depth of explanations", "Real-world examples", "Edge case handling"],
+            "daily_plan": [
+                {"day": i + 1, "focus": (session.get("domain") or "General"), "tasks": [f"Study topic {i+1}", "Practice 2 questions"], "time_minutes": 60}
+                for i in range(7)
+            ],
+            "recommended_resources": [
+                {"title": "Official documentation for your domain", "type": "course", "reason": "Builds strong fundamentals"}
+            ],
+            "motivational_message": "Every expert was once a beginner. Keep going!"
+        }
+        return {"growth_plan": plan}
+
+    provider = session["provider"]
+    config = API_CONFIGS.get(provider)
+    if not config:
+        return {"growth_plan": soul_engine.parse_growth_plan_json("")}
+
+    model = session.get("model") or get_default_model(provider)
+    plan_prompt = soul_engine.build_growth_plan_prompt(profile, qa_pairs)
+
+    try:
+        if provider in {"openai", "perplexity", "grok", "together_ai", "nvidia"}:
+            api_url = config["base_url"] + "/chat/completions"
+            headers = {"Authorization": f"Bearer {session['api_key']}", "Content-Type": "application/json"}
+            payload = {"model": model, "messages": [
+                {"role": "system", "content": "You are a career coach. Always respond with a single valid JSON object only. No markdown, no explanation before or after the JSON."},
+                {"role": "user", "content": plan_prompt}
+            ]}
+            res = requests.post(api_url, headers=headers, json=payload, timeout=60)
+            raw = res.json().get("choices", [{}])[0].get("message", {}).get("content", "") if res.ok else ""
+        elif provider == "anthropic":
+            api_url = config["base_url"] + "/messages"
+            headers = {"x-api-key": session["api_key"], "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+            payload = {"model": model, "max_tokens": 2048, "messages": [{"role": "user", "content": plan_prompt}]}
+            res = requests.post(api_url, headers=headers, json=payload, timeout=60)
+            parts = res.json().get("content", []) if res.ok else []
+            raw = "".join([p.get("text", "") for p in parts if isinstance(p, dict)])
+        elif provider == "google":
+            api_url = config["base_url"] + f"/models/{model}:generateContent"
+            payload = {"contents": [{"parts": [{"text": plan_prompt}]}]}
+            res = requests.post(api_url, headers={}, params={"key": session["api_key"]}, json=payload, timeout=60)
+            try:
+                candidates = res.json().get("candidates", [])
+                raw = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "") if candidates else ""
+            except Exception:
+                raw = ""
+        else:
+            raw = ""
+    except Exception:
+        raw = ""
+
+    return {"growth_plan": soul_engine.parse_growth_plan_json(raw)}
+
+
+@router.get("/tracks")
+def list_tracks():
+    """Return all available company/topic interview tracks."""
+    return {"tracks": company_tracks.get_all_tracks()}
+
+
+@router.get("/tracks/{track_id}")
+def get_track(track_id: str):
+    """Return details for a specific track."""
+    track = company_tracks.get_track(track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail=f"Track '{track_id}' not found")
+    return {"track": track}
+
 
 @router.post("/interview/transcribe")
 async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(...)):

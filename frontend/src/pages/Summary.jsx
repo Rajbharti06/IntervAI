@@ -8,6 +8,9 @@ function Summary() {
   const summary = location.state?.summary;
   const domain = location.state?.domain || 'Interview';
   const messages = Array.isArray(location.state?.messages) ? location.state.messages : [];
+  const growthPlan = location.state?.growth_plan || null;
+  const gamification = summary?.gamification || null;
+  const commStats = summary?.communication_stats || null;
   const [isDownloading, setIsDownloading] = useState(false);
 
   const contentRef = useRef(null);
@@ -116,6 +119,183 @@ function Summary() {
 
         {/* Content for PDF */}
         <div ref={contentRef} className="space-y-8">
+          {/* Gamification Summary */}
+          {gamification && (
+            <div className="bg-white rounded-2xl shadow-xl p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+                <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center mr-3">
+                  <span className="text-yellow-500 text-lg">🏆</span>
+                </div>
+                Session Results
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="text-center bg-indigo-50 rounded-xl p-4">
+                  <div className="text-2xl font-bold text-indigo-700">+{gamification.total_xp}</div>
+                  <div className="text-xs text-indigo-500 mt-1">XP Earned</div>
+                </div>
+                <div className="text-center bg-blue-50 rounded-xl p-4">
+                  <div className="text-2xl">{gamification.level?.icon || '🌱'}</div>
+                  <div className="text-xs font-medium text-blue-700 mt-1">{gamification.level?.name}</div>
+                </div>
+                <div className="text-center bg-green-50 rounded-xl p-4">
+                  <div className="text-2xl font-bold text-green-700">{gamification.average_score}/10</div>
+                  <div className="text-xs text-green-500 mt-1">Avg Score</div>
+                </div>
+                <div className="text-center bg-purple-50 rounded-xl p-4">
+                  <div className="text-2xl font-bold text-purple-700">{gamification.questions_answered}</div>
+                  <div className="text-xs text-purple-500 mt-1">Questions</div>
+                </div>
+              </div>
+              {gamification.badges_earned?.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">Badges Earned</h3>
+                  <div className="flex flex-wrap gap-3">
+                    {gamification.badges_earned.map(b => (
+                      <div key={b.key} className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-2">
+                        <span className="text-xl">{b.icon}</span>
+                        <div>
+                          <div className="text-xs font-semibold text-gray-800">{b.name}</div>
+                          <div className="text-xs text-gray-500">{b.desc}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {commStats && (
+                <div className="mt-6">
+                  <h3 className="font-semibold text-gray-900 mb-3">Communication Stats</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    {[
+                      { label: 'Avg Filler Rate', value: `${commStats.avg_filler_rate}%`, color: commStats.avg_filler_rate > 10 ? 'text-red-600' : 'text-green-600' },
+                      { label: 'Avg Confidence', value: `${commStats.avg_confidence_score}/10`, color: 'text-blue-600' },
+                      { label: 'Avg Clarity', value: `${commStats.avg_clarity_score}/10`, color: 'text-purple-600' },
+                      { label: 'Avg Word Count', value: commStats.avg_word_count, color: 'text-gray-700' },
+                      { label: 'STAR Answers', value: commStats.star_answers, color: 'text-yellow-600' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-lg p-3">
+                        <div className={`text-xl font-bold ${color}`}>{value}</div>
+                        <div className="text-xs text-gray-500">{label}</div>
+                      </div>
+                    ))}
+                    {commStats.top_fillers?.length > 0 && (
+                      <div className="bg-red-50 rounded-lg p-3">
+                        <div className="text-xs font-semibold text-red-700 mb-1">Top Filler Words</div>
+                        <div className="flex flex-wrap gap-1">
+                          {commStats.top_fillers.map(w => (
+                            <span key={w} className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">"{w}"</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Growth Plan */}
+          {growthPlan && (
+            <div className="bg-white rounded-2xl shadow-xl p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+                <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center mr-3">
+                  <svg className="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                </div>
+                Your 7-Day Growth Plan
+              </h2>
+
+              {growthPlan.overall_assessment && (
+                <p className="text-gray-700 mb-6 leading-relaxed">{growthPlan.overall_assessment}</p>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-6 mb-6">
+                {Array.isArray(growthPlan.top_strengths) && growthPlan.top_strengths.length > 0 && (
+                  <div className="bg-green-50 rounded-xl p-4">
+                    <h3 className="font-semibold text-green-900 mb-3">Your Strengths</h3>
+                    <ul className="space-y-1">
+                      {growthPlan.top_strengths.map((s, i) => (
+                        <li key={i} className="flex items-start text-sm text-green-800">
+                          <span className="mr-2 mt-0.5 text-green-500">✓</span>{s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(growthPlan.top_gaps) && growthPlan.top_gaps.length > 0 && (
+                  <div className="bg-amber-50 rounded-xl p-4">
+                    <h3 className="font-semibold text-amber-900 mb-3">Focus Areas</h3>
+                    <ul className="space-y-1">
+                      {growthPlan.top_gaps.map((g, i) => (
+                        <li key={i} className="flex items-start text-sm text-amber-800">
+                          <span className="mr-2 mt-0.5">→</span>{g}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              {Array.isArray(growthPlan.daily_plan) && growthPlan.daily_plan.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-gray-900 mb-4">Daily Practice Plan</h3>
+                  <div className="grid gap-3">
+                    {growthPlan.daily_plan.map((day) => (
+                      <div key={day.day} className="flex gap-4 bg-gray-50 rounded-xl p-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold text-sm">
+                          D{day.day}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-medium text-gray-900 text-sm">{day.focus}</span>
+                            {day.time_minutes && (
+                              <span className="text-xs text-gray-400">{day.time_minutes} min</span>
+                            )}
+                          </div>
+                          {Array.isArray(day.tasks) && (
+                            <ul className="space-y-0.5">
+                              {day.tasks.map((t, ti) => (
+                                <li key={ti} className="text-xs text-gray-600 flex items-start">
+                                  <span className="mr-1.5 text-gray-400">•</span>{t}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {Array.isArray(growthPlan.recommended_resources) && growthPlan.recommended_resources.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="font-semibold text-gray-900 mb-3">Recommended Resources</h3>
+                  <div className="space-y-2">
+                    {growthPlan.recommended_resources.map((r, i) => (
+                      <div key={i} className="flex items-start gap-3 bg-indigo-50 rounded-lg p-3">
+                        <span className="text-indigo-500 text-xs font-medium uppercase mt-0.5 flex-shrink-0 bg-indigo-100 px-1.5 py-0.5 rounded">
+                          {r.type || 'resource'}
+                        </span>
+                        <div>
+                          <div className="text-sm font-medium text-indigo-900">{r.title}</div>
+                          {r.reason && <div className="text-xs text-indigo-700 mt-0.5">{r.reason}</div>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {growthPlan.motivational_message && (
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl p-4 text-white text-center">
+                  <p className="font-medium italic">"{growthPlan.motivational_message}"</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {hasSummary && (
             <>
               {/* Performance Overview */}

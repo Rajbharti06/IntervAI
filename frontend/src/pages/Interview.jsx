@@ -4,6 +4,8 @@ import { API_BASE } from '../config';
 import { useLocation, useNavigate } from 'react-router-dom';
 import MicButton from '../components/MicButton';
 import MessageBubble from '../components/MessageBubble';
+import GamificationBar from '../components/GamificationBar';
+import StarMethodHelper from '../components/StarMethodHelper';
 
 function Interview() {
   const location = useLocation();
@@ -26,6 +28,13 @@ function Interview() {
   const [errors, setErrors] = useState({});
   const [networkError, setNetworkError] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const fileInputRef = useRef(null);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState(null);
+  const [showStarHelper, setShowStarHelper] = useState(false);
+  const [sessionXp, setSessionXp] = useState(0);
+  const [newBadges, setNewBadges] = useState([]);
   const [timeLeft, setTimeLeft] = useState(null);
   const timerRef = useRef(null);
   const [isTimeUp, setIsTimeUp] = useState(false);
@@ -414,7 +423,17 @@ function Interview() {
           throw new Error(errorMessage);
         }
       } else {
-        // OK response handling
+        // Attach analysis to the user's answer message
+        if (data?.analysis) {
+          setMessages(prev => prev.map(m => m.id === userMessage.id ? { ...m, analysis: data.analysis } : m));
+        }
+
+        // XP earned this answer
+        if (typeof data?.score === 'number') {
+          const xpEarned = data.score * 10 + (data.analysis?.filler_word_count === 0 ? 15 : 0) + (data.analysis?.is_star_answer ? 20 : 0);
+          setSessionXp(prev => prev + xpEarned);
+        }
+
         const feedbackMessage = {
           id: Date.now() + 1,
           type: 'feedback',
@@ -479,6 +498,33 @@ function Interview() {
     }
   };
 
+  const uploadDocument = async (file) => {
+    if (!file || !sessionData?.session_id) return;
+    const allowed = ['.pdf', '.docx', '.txt', '.md'];
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowed.includes(ext)) {
+      setErrors(prev => ({ ...prev, upload: `Unsupported file type. Allowed: ${allowed.join(', ')}` }));
+      return;
+    }
+    setIsUploading(true);
+    setUploadMessage(null);
+    setErrors(prev => ({ ...prev, upload: null }));
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('session_id', sessionData.session_id);
+      const res = await fetch(API_BASE + '/interview/upload_document', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || 'Upload failed');
+      setUploadedFile({ name: file.name, topics: data.detected_topics || [] });
+      setUploadMessage(data.message || 'Document uploaded. Questions will now draw from its content.');
+    } catch (err) {
+      setErrors(prev => ({ ...prev, upload: err.message || 'Failed to upload document.' }));
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const endInterview = async () => {
     if (!sessionData?.session_id) return;
 
@@ -488,14 +534,29 @@ function Interview() {
     setErrors({});
     setNetworkError(null);
 
+    let growthPlan = null;
+    // Fetch growth plan before ending the session (non-blocking on failure)
+    try {
+      const gpFd = new FormData();
+      gpFd.append('session_id', sessionData.session_id);
+      const gpRes = await fetch(API_BASE + '/interview/growth_plan', { method: 'POST', body: gpFd });
+      if (gpRes.ok) {
+        const gpData = await gpRes.json();
+        growthPlan = gpData?.growth_plan || null;
+      }
+    } catch {}
+
     try {
       const formData = new FormData();
       formData.append('session_id', sessionData.session_id);
-      
+
       const response = await fetch(API_BASE + '/interview/end', {
         method: 'POST',
         body: formData
       });
+
+      let summaryData = null;
+      try { summaryData = await response.json(); } catch {}
 
       if (!response.ok) {
         let errorMessage = `Server error (${response.status})`;
@@ -507,24 +568,24 @@ function Interview() {
         throw new Error(errorMessage);
       }
 
-      // Mark session as ended
       try {
         const session = JSON.parse(localStorage.getItem('intervai_active_session') || '{}');
         session.lastEndedAt = Date.now();
         localStorage.setItem('intervai_active_session', JSON.stringify(session));
       } catch {}
 
-      navigate('/summary', { 
-        state: { 
+      navigate('/summary', {
+        state: {
           session_id: sessionData.session_id,
           stats: interviewStats,
-          messages: messages
-        } 
+          messages: messages,
+          summary: summaryData?.summary,
+          domain: sessionData.domain,
+          growth_plan: growthPlan,
+        }
       });
     } catch (error) {
       console.error('Error ending interview:', error);
-      
-      // Check if it's a network error
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
         setNetworkError('Cannot connect to the interview service to end the session. You can still navigate away manually.');
       } else {
@@ -596,6 +657,9 @@ function Interview() {
           </div>
         </div>
       </div>
+
+      {/* Gamification Bar */}
+      <GamificationBar sessionXp={sessionXp} newBadges={newBadges} />
 
       {/* Session Info */}
       <div className="bg-white border-b border-gray-100">
@@ -728,6 +792,19 @@ function Interview() {
                   </div>
                 )}
 
+                {/* Document upload feedback */}
+                {uploadedFile && (
+                  <div className="mb-3 flex items-center gap-2 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span><strong>{uploadedFile.name}</strong> — {uploadMessage || 'Questions will draw from this document.'}</span>
+                  </div>
+                )}
+                {errors.upload && (
+                  <div className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{errors.upload}</div>
+                )}
+
                 <div className="flex space-x-4">
                   <div className="flex-1">
                     <textarea
@@ -735,11 +812,54 @@ function Interview() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyPress={handleKeyPress}
-                      placeholder="Type your answer here..."
+                      placeholder="Type your answer here... (or upload a PDF/DOCX to practice from it)"
                       className="form-input resize-none"
                       rows="3"
                       disabled={isLoading || !currentQuestion || isTimeUp}
                     />
+                    {/* Hidden file input */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.docx,.txt,.md"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) uploadDocument(f);
+                        e.target.value = '';
+                      }}
+                    />
+                    <div className="mt-2 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isUploading || !sessionData?.session_id}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 transition-colors disabled:opacity-40"
+                      title="Upload PDF, DOCX, or TXT — AI will generate questions from it"
+                    >
+                      {isUploading ? (
+                        <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                      ) : (
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        </svg>
+                      )}
+                      {isUploading ? 'Uploading...' : (uploadedFile ? `Change file (${uploadedFile.name})` : 'Attach PDF / DOCX / TXT')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowStarHelper(v => !v)}
+                      className={`flex items-center gap-1 text-xs transition-colors ${showStarHelper ? 'text-blue-600' : 'text-gray-500 hover:text-blue-600'}`}
+                      title="STAR method guide for behavioral questions"
+                    >
+                      <span>⭐</span>
+                      STAR Helper
+                    </button>
+                    </div>
+                    <StarMethodHelper visible={showStarHelper} />
                   </div>
                   
                   <div className="flex flex-col space-y-2">
