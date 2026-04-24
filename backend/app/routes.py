@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Form, HTTPException, APIRouter, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 import requests
 import os
 import uuid
@@ -7,6 +8,7 @@ import re
 import json
 import random
 from . import soul_engine, document_engine, speech_analyzer, gamification, company_tracks
+from . import llm_client
 
 app = FastAPI()
 
@@ -458,42 +460,43 @@ def _generate_local_question_with_difficulty(session: dict, session_id: str) -> 
     return ultimate
 
 # Define API configurations for different providers
+# "default_model" is used when the user doesn't specify one.
 API_CONFIGS = {
     "openai": {
         "api_key": None,
         "base_url": "https://api.openai.com/v1",
-        "default_model": "gpt-3.5-turbo",
+        "default_model": "gpt-4o-mini",
     },
     "anthropic": {
         "api_key": None,
         "base_url": "https://api.anthropic.com/v1",
-        "default_model": "claude-3-opus-20240229",
+        "default_model": "claude-sonnet-4-6",
     },
     "google": {
         "api_key": None,
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
-        "default_model": "gemini-pro",
+        "default_model": "gemini-2.0-flash",
     },
     "perplexity": {
         "api_key": None,
         "base_url": "https://api.perplexity.ai",
-        # Use a current, officially supported Sonar model name
         "default_model": "sonar-pro",
     },
     "grok": {
+        # Provider ID "grok" maps to Groq's fast inference API (groq.com), not xAI.
         "api_key": None,
         "base_url": "https://api.groq.com/openai/v1",
-        "default_model": "grok-4",
+        "default_model": "llama-3.3-70b-versatile",
     },
     "together_ai": {
         "api_key": None,
         "base_url": "https://api.together.xyz/v1",
-        "default_model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     },
     "nvidia": {
         "api_key": None,
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "default_model": "meta/llama-3.1-70b-instruct",
+        "default_model": "meta/llama-3.3-70b-instruct",
     },
 }
 
@@ -553,6 +556,44 @@ def _is_offline_demo(session: dict) -> bool:
         return key.lower() in {"demo", "test"} or key.startswith("sk-test") or key.startswith("demo-")
     except Exception:
         return False
+
+# ─── Soul-engine-powered evaluator (replaces per-provider duplication) ────────
+
+def _evaluate_with_soul(session: dict, answer: str) -> dict:
+    """
+    Evaluate an answer using soul_engine's rich prompt via the unified llm_client.
+    Returns: {score, is_correct, short_verdict, detailed_feedback,
+              correct_answer_hint, improvement_tip, topic_tag}
+    Falls back gracefully if the LLM call fails.
+    """
+    question = session.get("current_question", "")
+    profile = session.get("soul_profile") or soul_engine.default_profile(
+        session.get("domain", "General")
+    )
+
+    eval_prompt = soul_engine.build_evaluation_prompt(question, answer, profile)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are an expert interview evaluator. "
+                "Always respond with a single valid JSON object. No markdown, no extra text."
+            ),
+        },
+        {"role": "user", "content": eval_prompt},
+    ]
+
+    provider = session.get("provider", "openai")
+    model = session.get("model") or llm_client.get_default_model(provider)
+    api_key = session.get("api_key", "")
+
+    try:
+        raw = llm_client.call_llm(provider, api_key, model, messages, max_tokens=600, timeout=45)
+        return soul_engine.parse_evaluation_json(raw)
+    except Exception as exc:
+        print(f"Soul evaluator error ({provider}): {exc}")
+        return soul_engine.parse_evaluation_json("")
+
 
 # Local fallback question generator to ensure resilience when upstream APIs fail
 def _generate_local_question(session: dict, session_id: str) -> str:
@@ -877,211 +918,23 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
     if not config:
         raise HTTPException(status_code=500, detail="API configuration not found for this provider")
 
-    model = session.get('model') or get_default_model(provider)
-
+    # ── Use soul_engine evaluation for rich, structured feedback ──────────────
     try:
-        if provider in {"openai", "perplexity", "grok", "together_ai", "nvidia"}:
-            api_url = config["base_url"] + "/chat/completions"
-            headers = {"Authorization": f"Bearer {session['api_key']}", "Content-Type": "application/json"}
-            prompt_user = (
-                "Evaluate this interview Q&A. Respond with ONLY a JSON object — no markdown, no preamble, no explanation.\n"
-                "JSON schema: {\"score\": <integer 1-10>, \"verdict\": \"Correct|Partially Correct|Incorrect\", "
-                "\"feedback\": \"<2-3 sentence evaluation>\", \"correct_answer\": \"<concise model answer>\"}\n\n"
-                f"Question: {session.get('current_question', 'Unknown')}\n"
-                f"Candidate answer: {answer}\n\n"
-                "Output the JSON object now:"
-            )
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": (
-                        "You are an expert technical interviewer who evaluates candidate answers. "
-                        "Always respond with a single JSON object only. Never add text before or after the JSON."
-                    )},
-                    {"role": "user", "content": prompt_user}
-                ]
-            }
-            # Only request structured JSON for OpenAI; other OpenAI-compatible providers may reject response_format
-            if provider == "openai":
-                payload["response_format"] = {"type": "json_object"}
+        eval_data = _evaluate_with_soul(session, answer)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Evaluation failed: {str(e)}")
 
-            res = requests.post(api_url, headers=headers, json=payload, timeout=45)
-            try:
-                response_data = res.json()
-            except Exception:
-                response_data = {"message": res.text}
+    score = max(1, min(10, int(eval_data.get("score", 5))))
+    verdict = "Correct" if eval_data.get("is_correct") else (
+        "Partially Correct" if score >= 5 else "Incorrect"
+    )
+    feedback = eval_data.get("detailed_feedback") or eval_data.get("short_verdict") or "No feedback."
+    correct_answer = eval_data.get("correct_answer_hint") or ""
+    improvement_tip = eval_data.get("improvement_tip") or ""
+    short_verdict = eval_data.get("short_verdict") or verdict
+    topic_tag = eval_data.get("topic_tag") or session.get("domain") or "General"
 
-            if not res.ok:
-                error_msg = mask_secret(extract_error_message(response_data))
-                # Retry once without response_format if the provider complains about it
-                if res.status_code in (400, 422) and "response_format" in (error_msg or "").lower() and "response_format" in payload:
-                    try:
-                        retry_payload = {
-                            "model": model,
-                            "messages": payload["messages"]
-                        }
-                        res_retry = requests.post(api_url, headers=headers, json=retry_payload, timeout=45)
-                        try:
-                            response_data = res_retry.json()
-                        except Exception:
-                            response_data = {"message": res_retry.text}
-                        if not res_retry.ok:
-                            error_msg = mask_secret(extract_error_message(response_data))
-                            print(f"{provider} API Error (answer retry): {error_msg}")
-                            raise HTTPException(status_code=res_retry.status_code, detail=error_msg or f"Failed to evaluate answer with {provider} API")
-                    except requests.exceptions.RequestException as e:
-                        print(f"Upstream request failed (answer retry): {str(e)}")
-                        raise HTTPException(status_code=502, detail="Upstream provider error during retry")
-                else:
-                    print(f"{provider} API Error (answer): {error_msg}")
-                    raise HTTPException(status_code=res.status_code, detail=error_msg or f"Failed to evaluate answer with {provider} API")
-
-            # Parse successful response_data
-            try:
-                choice = response_data['choices'][0]['message']
-                content = choice.get('content') if isinstance(choice, dict) else None
-                # Strip markdown code fences if present (```json ... ```)
-                raw_content = (content or '').strip()
-                if raw_content.startswith('```'):
-                    raw_content = re.sub(r'^```[a-z]*\n?', '', raw_content)
-                    raw_content = re.sub(r'\n?```$', '', raw_content).strip()
-                data = json.loads(raw_content) if raw_content else {}
-                score = int(data.get('score', 0))
-                # Normalize to 1–10 scale if provider returned 0–100
-                if score > 10:
-                    score = max(1, min(10, round(score / 10)))
-                if score < 1:
-                    score = 1
-                verdict = data.get('verdict', 'Unknown')
-                feedback = data.get('feedback', 'No feedback provided.')
-                correct_answer = data.get('correct_answer', '')
-            except Exception:
-                text = response_data.get('choices', [{}])[0].get('message', {}).get('content', '')
-                data = {}
-                # Try 1: find embedded JSON object
-                try:
-                    m = re.search(r'\{.*?"score".*?\}', text, re.DOTALL)
-                    if m:
-                        data = json.loads(m.group())
-                except Exception:
-                    pass
-                # Try 2: parse plain-text "Score: X\nVerdict: Y\nFeedback: Z" format
-                if not data:
-                    try:
-                        sm = re.search(r'[Ss]core[:\s]+(\d+)', text)
-                        vm = re.search(r'[Vv]erdict[:\s]+([^\n]+)', text)
-                        fm = re.search(r'[Ff]eedback[:\s]+([^\n]+(?:\n(?![A-Z])[^\n]+)*)', text)
-                        cm = re.search(r'[Cc]orrect[_ ][Aa]nswer[:\s]+([^\n]+(?:\n(?![A-Z])[^\n]+)*)', text)
-                        if sm:
-                            data = {
-                                "score": int(sm.group(1)),
-                                "verdict": (vm.group(1).strip() if vm else "Partially Correct"),
-                                "feedback": (fm.group(1).strip() if fm else text[:300]),
-                                "correct_answer": (cm.group(1).strip() if cm else ""),
-                            }
-                    except Exception:
-                        pass
-                score = max(1, min(10, int(data.get('score', 5))))
-                verdict = data.get('verdict', 'Partially Correct')
-                feedback = data.get('feedback', text.strip()[:400] or 'Could not parse structured feedback.')
-                correct_answer = data.get('correct_answer', '')
-        elif provider == "anthropic":
-            api_url = config["base_url"] + "/messages"
-            headers = {
-                "x-api-key": session['api_key'],
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json"
-            }
-            prompt = (
-                "You are an expert interviewer. Read the question and answer and return ONLY a JSON object with keys: "
-                "score (1-10 number), verdict (Correct/Partially Correct/Incorrect), feedback (concise string), correct_answer (string).\n\n"
-                f"Question: {session.get('current_question', 'Unknown')}\nAnswer: {answer}\n"
-                "If the answer is empty, too short, or off-topic, set score to 1 and provide a concise, authoritative model answer in correct_answer."
-            )
-            payload = {
-                "model": model,
-                "max_tokens": 256,
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ]
-            }
-            res = requests.post(api_url, headers=headers, json=payload, timeout=45)
-            try:
-                response_data = res.json()
-            except Exception:
-                response_data = {"message": res.text}
-            if not res.ok:
-                error_msg = mask_secret(extract_error_message(response_data))
-                print(f"{provider} API Error (answer): {error_msg}")
-                raise HTTPException(status_code=res.status_code, detail=error_msg or f"Failed to evaluate answer with {provider} API")
-            parts = response_data.get('content') or []
-            text = "".join([p.get('text', '') for p in parts if isinstance(p, dict)])
-            try:
-                data = json.loads(text)
-                score = int(data.get('score', 0))
-                if score > 10:
-                    score = max(1, min(10, round(score / 10)))
-                if score < 1:
-                    score = 1
-                verdict = data.get('verdict', 'Unknown')
-                feedback = data.get('feedback', 'No feedback provided.')
-                correct_answer = data.get('correct_answer', '')
-            except Exception:
-                score = 70
-                verdict = 'Partially Correct'
-                feedback = text.strip()[:400] or 'Could not parse structured feedback.'
-                correct_answer = ''
-        elif provider == "google":
-            api_url = config["base_url"] + f"/models/{model}:generateContent"
-            headers = {"Content-Type": "application/json"}
-            prompt = (
-                "You are an expert interviewer. Read the question and answer and return ONLY a JSON object with keys: "
-                "score (1-10 number), verdict (Correct/Partially Correct/Incorrect), feedback (concise string), correct_answer (string).\n\n"
-                f"Question: {session.get('current_question', 'Unknown')}\nAnswer: {answer}\n"
-                "If the answer is empty, too short, or off-topic, set score to 1 and provide a concise, authoritative model answer in correct_answer."
-            )
-            payload = {
-                "contents": [
-                    {"parts": [{"text": prompt}]}
-                ]
-            }
-            res = requests.post(api_url, headers=headers, params={"key": session['api_key']}, json=payload, timeout=45)
-            try:
-                response_data = res.json()
-            except Exception:
-                response_data = {"message": res.text}
-            if not res.ok:
-                error_msg = mask_secret(extract_error_message(response_data))
-                print(f"{provider} API Error (answer): {error_msg}")
-                raise HTTPException(status_code=res.status_code, detail=error_msg or f"Failed to evaluate answer with {provider} API")
-            try:
-                candidates = response_data.get('candidates') or []
-                content = (candidates[0] or {}).get('content') or {}
-                parts = content.get('parts') or []
-                text = (parts[0] or {}).get('text') or ''
-            except Exception:
-                text = ''
-            try:
-                data = json.loads(text)
-                score = int(data.get('score', 0))
-                if score > 10:
-                    score = max(1, min(10, round(score / 10)))
-                if score < 1:
-                    score = 1
-                verdict = data.get('verdict', 'Unknown')
-                feedback = data.get('feedback', 'No feedback provided.')
-                correct_answer = data.get('correct_answer', '')
-            except Exception:
-                score = 70
-                verdict = 'Partially Correct'
-                feedback = text.strip()[:400] or 'Could not parse structured feedback.'
-                correct_answer = ''
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=502, detail=f"Upstream request failed: {str(e)}")
-
-    # Run speech/text analysis on the answer
+    # ── Speech / text analysis ────────────────────────────────────────────────
     interview_type = session.get("interview_type", "general")
     analysis = speech_analyzer.analyze(answer, question_type=interview_type)
     analysis_dict = speech_analyzer.to_dict(analysis)
@@ -1093,6 +946,8 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
         'verdict': verdict,
         'feedback': feedback,
         'correct_answer': correct_answer,
+        'improvement_tip': improvement_tip,
+        'topic_tag': topic_tag,
         'analysis': analysis_dict,
     })
     session.setdefault('answers_given', []).append(answer)
@@ -1101,18 +956,20 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
     session.setdefault('analysis_history', []).append(analysis_dict)
     session['last_score_10'] = score
 
-    # Update soul engine profile
     if "soul_profile" in session:
         session["soul_profile"] = soul_engine.update_profile(
-            session["soul_profile"], score, topic=session.get("domain")
+            session["soul_profile"], score, topic=topic_tag
         )
         session["difficulty"] = session["soul_profile"]["current_difficulty"]
 
     return {
         'score': score,
         'verdict': verdict,
+        'short_verdict': short_verdict,
         'feedback': feedback,
         'correct_answer': correct_answer,
+        'improvement_tip': improvement_tip,
+        'topic_tag': topic_tag,
         'analysis': analysis_dict,
     }
 
@@ -1473,3 +1330,134 @@ def restore_interview(session_id: str = Form(...)):
         "model": model,
         "difficulty": session.get('difficulty', 'basic')
     }
+
+
+# ─── SSE Streaming Endpoints ──────────────────────────────────────────────────
+# These stream text token-by-token so the UI can show a typing effect.
+# Frontend uses fetch() + ReadableStream (works with POST-initiated GET).
+
+@router.get("/interview/question/stream")
+def stream_question(session_id: str):
+    """Stream the next interview question via SSE (GET, session_id as query param)."""
+    session = active_sessions.get(session_id)
+    if not session:
+        def _err():
+            yield "data: [ERROR]Session not found\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    if _is_offline_demo(session):
+        q = _generate_local_question_with_difficulty(session, session_id)
+        session.setdefault('questions_asked', []).append(q)
+        session['current_question'] = q
+        def _local():
+            # Simulate streaming for demo mode
+            for word in q.split():
+                yield f"data: {word} \n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_local(), media_type="text/event-stream",
+                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
+    soul_prompt = soul_engine.build_question_prompt(
+        profile=profile,
+        question_number=len(session.get("questions_asked", [])) + 1,
+        last_score=session.get("last_score_10"),
+    )
+    messages = [{"role": "user", "content": soul_prompt}]
+    provider = session['provider']
+    model = session.get('model') or llm_client.get_default_model(provider)
+    api_key = session['api_key']
+
+    accumulated = []
+
+    def _gen():
+        try:
+            for chunk in llm_client.stream_llm(provider, api_key, model, messages, max_tokens=400):
+                accumulated.append(chunk)
+                yield f"data: {json.dumps(chunk)}\n\n"
+            full = "".join(accumulated)
+            if full and not _is_repeat(session, full):
+                _note_session_question(session, full)
+                session.setdefault('questions_asked', []).append(full)
+                session['current_question'] = full
+            yield "data: [DONE]\n\n"
+        except Exception as exc:
+            fallback = _generate_local_question_with_difficulty(session, session_id)
+            session.setdefault('questions_asked', []).append(fallback)
+            session['current_question'] = fallback
+            yield f"data: {json.dumps(fallback)}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/interview/answer/stream")
+def stream_answer_feedback(session_id: str, answer: str):
+    """
+    Stream AI feedback for a candidate answer via SSE.
+    Uses soul_engine evaluation prompt so feedback is mentor-quality.
+    """
+    session = active_sessions.get(session_id)
+    if not session:
+        def _err():
+            yield "data: [ERROR]Session not found\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    question = session.get("current_question", "")
+    profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
+    eval_prompt = soul_engine.build_evaluation_prompt(question, answer, profile)
+    messages = [
+        {"role": "system", "content": "You are an expert interview evaluator. Respond with only valid JSON."},
+        {"role": "user", "content": eval_prompt},
+    ]
+    provider = session['provider']
+    model = session.get('model') or llm_client.get_default_model(provider)
+    api_key = session['api_key']
+
+    accumulated = []
+
+    def _gen():
+        try:
+            for chunk in llm_client.stream_llm(provider, api_key, model, messages, max_tokens=600):
+                accumulated.append(chunk)
+                yield f"data: {json.dumps(chunk)}\n\n"
+            full = "".join(accumulated)
+            eval_data = soul_engine.parse_evaluation_json(full)
+
+            # Persist session state once we have the full response
+            score = max(1, min(10, int(eval_data.get("score", 5))))
+            interview_type = session.get("interview_type", "general")
+            analysis = speech_analyzer.analyze(answer, question_type=interview_type)
+            analysis_dict = speech_analyzer.to_dict(analysis)
+
+            session.setdefault('qa_pairs', []).append({
+                'question': question,
+                'user_answer': answer,
+                'score': score,
+                'verdict': "Correct" if eval_data.get("is_correct") else ("Partially Correct" if score >= 5 else "Incorrect"),
+                'feedback': eval_data.get("detailed_feedback", ""),
+                'correct_answer': eval_data.get("correct_answer_hint", ""),
+                'improvement_tip': eval_data.get("improvement_tip", ""),
+                'topic_tag': eval_data.get("topic_tag", ""),
+                'analysis': analysis_dict,
+            })
+            session.setdefault('scores_10', []).append(score)
+            session['last_score_10'] = score
+            if "soul_profile" in session:
+                session["soul_profile"] = soul_engine.update_profile(
+                    session["soul_profile"], score, topic=eval_data.get("topic_tag")
+                )
+                session["difficulty"] = session["soul_profile"]["current_difficulty"]
+
+            # Final event carries parsed eval metadata for the client
+            yield f"data: [META]{json.dumps(eval_data)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as exc:
+            yield f"data: [ERROR]{str(exc)}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

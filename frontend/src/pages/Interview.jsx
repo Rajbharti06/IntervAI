@@ -245,10 +245,8 @@ function Interview() {
 
   const generateQuestion = async () => {
     if (!sessionData?.session_id) return;
-
-    // Check network status first
     if (!isOnline) {
-      setNetworkError('Cannot generate question while offline. Please check your internet connection.');
+      setNetworkError('Cannot generate question while offline.');
       return;
     }
 
@@ -256,69 +254,99 @@ function Interview() {
     setErrors({});
     setNetworkError(null);
 
+    // ── Streaming path — uses SSE endpoint ───────────────────────────────────
+    const msgId = Date.now();
+    let accumulated = '';
+    let streamSucceeded = false;
+
+    try {
+      const url = `${API_BASE}/interview/question/stream?session_id=${encodeURIComponent(sessionData.session_id)}`;
+      const response = await fetch(url);
+
+      if (response.ok && response.body) {
+        // Optimistic placeholder so the user sees typing immediately
+        setMessages(prev => [...prev, {
+          id: msgId, type: 'question', content: '', timestamp: new Date().toISOString()
+        }]);
+        setInterviewStats(prev => ({ ...prev, questionsAsked: prev.questionsAsked + 1 }));
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6);
+            if (raw === '[DONE]') { streamSucceeded = true; break; }
+            if (raw.startsWith('[ERROR]')) {
+              throw new Error(raw.slice(7) || 'Stream error');
+            }
+            try {
+              const chunk = JSON.parse(raw);
+              accumulated += chunk;
+              setMessages(prev => prev.map(m =>
+                m.id === msgId ? { ...m, content: accumulated } : m
+              ));
+            } catch {
+              // raw text not JSON (demo mode word-by-word)
+              accumulated += raw;
+              setMessages(prev => prev.map(m =>
+                m.id === msgId ? { ...m, content: accumulated } : m
+              ));
+            }
+          }
+          if (streamSucceeded) break;
+        }
+
+        const finalMsg = { id: msgId, type: 'question', content: accumulated, timestamp: new Date().toISOString() };
+        setMessages(prev => prev.map(m => m.id === msgId ? finalMsg : m));
+        setCurrentQuestion(finalMsg);
+        setIsGeneratingQuestion(false);
+        return;
+      }
+    } catch (streamErr) {
+      // Fall through to non-streaming path
+      console.warn('Streaming question failed, falling back:', streamErr);
+      setMessages(prev => prev.filter(m => m.id !== msgId));
+      setInterviewStats(prev => ({ ...prev, questionsAsked: Math.max(0, prev.questionsAsked - 1) }));
+    }
+
+    // ── Non-streaming fallback ────────────────────────────────────────────────
     try {
       const formData = new FormData();
       formData.append('session_id', sessionData.session_id);
-      
-      const response = await fetch(API_BASE + '/interview/question', {
-        method: 'POST',
-        body: formData
-      });
+      const response = await fetch(API_BASE + '/interview/question', { method: 'POST', body: formData });
 
       if (!response.ok) {
         let errorMessage = `Server error (${response.status})`;
         try {
           const errJson = await response.clone().json();
-          const detail = errJson?.detail || errJson?.message || errJson?.error;
-          if (typeof detail === 'string' && detail.trim().length > 0) {
-            if (detail.toLowerCase().includes('session not found')) {
-              errorMessage = 'Your session is invalid or expired. Please go back to the setup screen and start a new interview.';
-            } else {
-              errorMessage = detail;
-            }
-          }
+          const detail = errJson?.detail || errJson?.message;
+          if (typeof detail === 'string' && detail.trim()) errorMessage = detail;
         } catch {}
-        if (response.status === 404 && errorMessage === `Server error (404)`) {
-          errorMessage = 'Interview service not found. Please check if the backend is running.';
-        } else if (response.status === 500) {
-          errorMessage = 'Internal server error. Please try again later.';
-        } else if (response.status === 422) {
-          errorMessage = 'Your session is invalid or expired. Please go back to the setup screen and start a new interview.';
-        } else if (response.status === 400) {
-          // Only fall back to generic message if backend did not provide a helpful detail
-          if (!errorMessage || errorMessage === `Server error (400)`) {
-            errorMessage = 'Bad request. Please restart the interview from the setup screen and try again.';
-          }
-        } else if (response.status >= 400 && response.status < 500 && !errorMessage) {
-          errorMessage = 'Invalid request. Please refresh and try again.';
-        }
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      const questionText = data.question || 'No question received';
-
       const questionMessage = {
-        id: Date.now(),
-        type: 'question',
-        content: questionText,
+        id: Date.now(), type: 'question',
+        content: data.question || 'No question received',
         timestamp: new Date().toISOString()
       };
-
       setMessages(prev => [...prev, questionMessage]);
       setCurrentQuestion(questionMessage);
-      setInterviewStats(prev => ({
-        ...prev,
-        questionsAsked: prev.questionsAsked + 1
-      }));
-      // reset timer states handled by effect
+      setInterviewStats(prev => ({ ...prev, questionsAsked: prev.questionsAsked + 1 }));
 
     } catch (error) {
-      console.error('Error generating question:', error);
-      
-      // Check if it's a network error
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        setNetworkError('Cannot connect to the interview service. Please ensure the backend is running and reachable.');
+        setNetworkError('Cannot connect to the interview service. Please ensure the backend is running.');
       } else {
         setErrors({ question: error.message || 'Failed to generate question. Please try again.' });
       }
@@ -442,6 +470,9 @@ function Interview() {
             data && data.correct_answer ? `\n\nCorrect answer:\n${data.correct_answer}` : ''
           ].filter(Boolean).join(''),
           score: (data && typeof data.score === 'number') ? data.score : 0,
+          short_verdict: data?.short_verdict || null,
+          improvement_tip: data?.improvement_tip || null,
+          topic_tag: data?.topic_tag || null,
           timestamp: new Date().toISOString()
         };
 

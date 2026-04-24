@@ -108,40 +108,65 @@ function renderContent(content, type) {
 }
 
 export default function MessageBubble({ message }) {
-  const { type, content, score, timestamp, analysis } = message;
+  const { type, content, score, timestamp, analysis,
+          short_verdict, improvement_tip, topic_tag } = message;
   const isUser = type === 'answer';
   const [analysisOpen, setAnalysisOpen] = useState(false);
+  const normalizedScore = typeof score === 'number'
+    ? (score <= 10 ? score : Math.round(score / 10))
+    : null;
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
       <div className="flex items-start space-x-3 max-w-[85%]">
         {!isUser && getMessageIcon(type)}
-        
+
         <div className={`message-bubble ${isUser ? 'message-user' : 'message-assistant'}`}>
-          {/* Message Header */}
+          {/* Header */}
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-              {getMessageLabel(type)}
-            </span>
-            <span className="text-xs text-gray-400">
-              {formatTime(timestamp)}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                {getMessageLabel(type)}
+              </span>
+              {type === 'feedback' && topic_tag && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100">
+                  {topic_tag}
+                </span>
+              )}
+            </div>
+            <span className="text-xs text-gray-400">{formatTime(timestamp)}</span>
           </div>
 
-          {/* Message Content */}
+          {/* Verdict one-liner — surfaces the key takeaway immediately */}
+          {type === 'feedback' && short_verdict && (
+            <p className="text-sm font-medium text-gray-800 mb-2 italic">
+              {short_verdict}
+            </p>
+          )}
+
+          {/* Main content */}
           <div className="space-y-2">
             {renderContent(content, type)}
           </div>
 
-          {/* Score Display for Feedback */}
-          {type === 'feedback' && typeof score === 'number' && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
+          {/* Score + improvement tip */}
+          {type === 'feedback' && normalizedScore !== null && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-600">Score:</span>
-                <div className={`px-2 py-1 rounded-full text-sm font-medium ${getScoreColor(score)}`}>
-                  {score <= 10 ? score : Math.round(score / 10)}/10
+                <div className={`px-2 py-1 rounded-full text-sm font-semibold ${getScoreColor(normalizedScore)}`}>
+                  {normalizedScore}/10
                 </div>
               </div>
+              {improvement_tip && (
+                <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md p-2">
+                  <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                      d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  <span><strong>Tip:</strong> {improvement_tip}</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -149,13 +174,13 @@ export default function MessageBubble({ message }) {
         {isUser && (
           <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
             <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
         )}
       </div>
 
-      {/* Speech Analysis Card — shown under user answers that have analysis data */}
       {isUser && analysis && (
         <div className="w-full mt-1 ml-11">
           <SpeechAnalysisCard
