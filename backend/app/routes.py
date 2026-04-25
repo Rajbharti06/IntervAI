@@ -990,6 +990,59 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
         'analysis': analysis_dict,
     }
 
+
+@router.get("/interview/answer/stream")
+def stream_answer_feedback(session_id: str, answer: str):
+    """Stream answer evaluation feedback via SSE. Stores result in session on completion."""
+    session = active_sessions.get(session_id)
+    if not session:
+        def _err():
+            yield "data: [ERROR]Session not found\n\n"
+        return StreamingResponse(_err(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    question = session.get("current_question", "")
+    profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
+    eval_prompt = soul_engine.build_evaluation_prompt(question, answer, profile)
+    messages = [
+        {"role": "system", "content": "You are an expert interview evaluator. Always respond with a single valid JSON object. No markdown, no extra text."},
+        {"role": "user", "content": eval_prompt},
+    ]
+    provider = session.get("provider", "openai")
+    model = session.get("model") or llm_client.get_default_model(provider)
+    api_key = session.get("api_key", "")
+
+    accumulated = []
+
+    def _gen():
+        try:
+            for chunk in llm_client.stream_llm(provider, api_key, model, messages, max_tokens=600):
+                accumulated.append(chunk)
+                yield f"data: {json.dumps(chunk)}\n\n"
+            full = "".join(accumulated)
+            eval_data = soul_engine.parse_evaluation_json(full)
+            score = max(1, min(10, int(eval_data.get("score", 5))))
+            interview_type = session.get("interview_type", "general")
+            analysis = speech_analyzer.analyze(answer, question_type=interview_type)
+            analysis_dict = speech_analyzer.to_dict(analysis)
+            _persist_answer(session, answer, score, eval_data, analysis_dict)
+            result_meta = {
+                "score": score,
+                "short_verdict": eval_data.get("short_verdict", ""),
+                "improvement_tip": eval_data.get("improvement_tip", ""),
+                "topic_tag": eval_data.get("topic_tag", session.get("domain", "General")),
+                "analysis": analysis_dict,
+            }
+            yield f"data: [META]{json.dumps(result_meta)}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as exc:
+            print(f"Stream answer error: {exc}")
+            yield f"data: [ERROR]{str(exc)[:200]}\n\n"
+
+    return StreamingResponse(_gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @router.post("/interview/followup")
 def generate_followup(session_id: str = Form(...)):
     session = active_sessions.get(session_id)
@@ -1328,10 +1381,88 @@ def get_track(track_id: str):
 
 @router.post("/interview/transcribe")
 async def transcribe_audio(file: UploadFile = File(...), session_id: str = Form(...)):
-    # Placeholder: real implementation would call a speech-to-text service
+    """Real STT via OpenAI Whisper (or Groq Whisper). Falls back gracefully."""
+    import io as _io
+    session = active_sessions.get(session_id)
     data = await file.read()
-    text = f"[Transcribed {len(data)} bytes of audio]"
-    return {"text": text}
+    if not data:
+        raise HTTPException(status_code=400, detail="No audio data received")
+
+    api_key = (session or {}).get("api_key", "")
+    provider = (session or {}).get("provider", "openai")
+    filename = file.filename or "audio.webm"
+
+    # ── OpenAI Whisper ────────────────────────────────────────────────────────
+    if provider == "openai" and api_key and not api_key.lower().startswith("demo"):
+        try:
+            resp = requests.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": (filename, _io.BytesIO(data), "audio/webm")},
+                data={"model": "whisper-1"},
+                timeout=30,
+            )
+            if resp.ok:
+                text = resp.json().get("text", "").strip()
+                if text:
+                    return {"text": text, "provider": "whisper"}
+        except Exception as e:
+            print(f"Whisper STT error: {e}")
+
+    # ── Groq Whisper (free tier, very fast) ───────────────────────────────────
+    if provider == "grok" and api_key and not api_key.lower().startswith("demo"):
+        try:
+            resp = requests.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": (filename, _io.BytesIO(data), "audio/webm")},
+                data={"model": "whisper-large-v3"},
+                timeout=30,
+            )
+            if resp.ok:
+                text = resp.json().get("text", "").strip()
+                if text:
+                    return {"text": text, "provider": "groq-whisper"}
+        except Exception as e:
+            print(f"Groq Whisper STT error: {e}")
+
+    # Fallback — tell frontend to use browser speech recognition
+    return {"text": "", "fallback": True}
+
+
+@router.post("/interview/speak")
+async def text_to_speech(session_id: str = Form(...), text: str = Form(...)):
+    """TTS via OpenAI (tts-1). Returns audio/mpeg stream."""
+    from fastapi.responses import Response as FResponse
+    import io as _io
+    session = active_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    api_key = session.get("api_key", "")
+    provider = session.get("provider", "")
+    clean = (text or "").strip()[:4096]
+    if not clean:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    if provider == "openai" and api_key and not api_key.lower().startswith("demo"):
+        try:
+            resp = requests.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": "tts-1", "voice": "nova", "input": clean},
+                timeout=30,
+            )
+            if resp.ok:
+                return StreamingResponse(
+                    _io.BytesIO(resp.content),
+                    media_type="audio/mpeg",
+                    headers={"Cache-Control": "no-cache"},
+                )
+        except Exception as e:
+            print(f"OpenAI TTS error: {e}")
+
+    raise HTTPException(status_code=503, detail="TTS not available for this provider; use browser synthesis")
 
 @router.post("/interview/restore")
 def restore_interview(session_id: str = Form(...)):

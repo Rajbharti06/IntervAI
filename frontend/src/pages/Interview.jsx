@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 import { API_BASE } from '../config';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -6,6 +6,8 @@ import MicButton from '../components/MicButton';
 import MessageBubble from '../components/MessageBubble';
 import GamificationBar from '../components/GamificationBar';
 import StarMethodHelper from '../components/StarMethodHelper';
+import { useVoice } from '../hooks/useVoice';
+import { useAntiCheat } from '../hooks/useAntiCheat';
 
 function Interview() {
   const location = useLocation();
@@ -44,6 +46,15 @@ function Interview() {
   const [cameraOn, setCameraOn] = useState(false);
   const audioCtxRef = useRef(null);
   const lastBeepRef = useRef(null);
+
+  // Voice & anti-cheat
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isFeedbackStreaming, setIsFeedbackStreaming] = useState(false);
+  const { speak, stop: stopSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
+  const { tabSwitches, totalViolations, riskLevel, riskColor, onPaste } = useAntiCheat({
+    enabled: true,
+    onViolation: (v) => console.warn('[AntiCheat]', v),
+  });
 
   // Initialize session data
   useEffect(() => {
@@ -308,6 +319,7 @@ function Interview() {
         const finalMsg = { id: msgId, type: 'question', content: accumulated, timestamp: new Date().toISOString() };
         setMessages(prev => prev.map(m => m.id === msgId ? finalMsg : m));
         setCurrentQuestion(finalMsg);
+        speak(accumulated);
         setIsGeneratingQuestion(false);
         return;
       }
@@ -342,6 +354,7 @@ function Interview() {
       };
       setMessages(prev => [...prev, questionMessage]);
       setCurrentQuestion(questionMessage);
+      speak(questionMessage.content);
       setInterviewStats(prev => ({ ...prev, questionsAsked: prev.questionsAsked + 1 }));
 
     } catch (error) {
@@ -376,6 +389,7 @@ function Interview() {
     setIsLoading(true);
     setErrors({});
     setNetworkError(null);
+    stopSpeech(); // stop AI voice if still speaking
 
     try {
       const formData = new FormData();
@@ -479,10 +493,14 @@ function Interview() {
         setMessages(prev => [...prev, feedbackMessage]);
         const score10 = (feedbackMessage.score <= 10) ? feedbackMessage.score : Math.round(feedbackMessage.score / 10);
 
+        // Speak short verdict
+        const verdictText = feedbackMessage.short_verdict || (score10 >= 7 ? 'Good answer.' : 'Let me give you some feedback.');
+        speak(verdictText);
+
         // Update average score
         setInterviewStats(prev => {
           const totalQuestions = prev.questionsAsked;
-          const newAverage = totalQuestions > 0 
+          const newAverage = totalQuestions > 0
             ? ((prev.averageScore * (totalQuestions - 1)) + score10) / totalQuestions
             : score10;
           return { ...prev, averageScore: newAverage };
@@ -690,13 +708,56 @@ function Interview() {
                   </span>
                 ) : null}
               </div>
+              {/* Anti-cheat risk indicator */}
+              {totalViolations > 0 && (
+                <div className={`hidden md:flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${
+                  riskLevel === 'high' ? 'bg-red-50 text-red-700 border-red-200' :
+                  riskLevel === 'medium' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                  'bg-yellow-50 text-yellow-700 border-yellow-200'
+                }`} title={`${tabSwitches} tab switch(es) detected`}>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  {totalViolations} flag{totalViolations !== 1 ? 's' : ''}
+                </div>
+              )}
+
+              {/* Voice toggle */}
+              <button
+                onClick={() => { setVoiceEnabled(v => !v); if (isSpeaking) stopSpeech(); }}
+                title={voiceEnabled ? 'Voice on — click to mute' : 'Voice off — click to enable'}
+                className={`p-2 rounded-full transition-colors ${voiceEnabled ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+              >
+                {voiceEnabled ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0 0l-3-3m3 3l3-3M6.343 6.343A8 8 0 1017.657 17.657"/>
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+                  </svg>
+                )}
+              </button>
+
+              {/* Speaking indicator */}
+              {isSpeaking && (
+                <div className="flex items-center gap-1 text-xs text-indigo-600">
+                  <span className="flex gap-0.5">
+                    {[0,1,2].map(i => (
+                      <span key={i} className="w-1 bg-indigo-500 rounded-full animate-bounce" style={{ height: `${8 + i * 4}px`, animationDelay: `${i * 0.1}s` }} />
+                    ))}
+                  </span>
+                  <span className="hidden sm:inline">Speaking</span>
+                </div>
+              )}
+
               <div className="interview-timer">
                 <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>{formatTime(interviewStats.totalTime)}</span>
               </div>
-              
+
               <button
                 onClick={endInterview}
                 className="btn btn-secondary btn-sm"
@@ -862,6 +923,7 @@ function Interview() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyPress={handleKeyPress}
+                      onPaste={onPaste}
                       placeholder="Type your answer here... (or upload a PDF/DOCX to practice from it)"
                       className="form-input resize-none"
                       rows="3"
