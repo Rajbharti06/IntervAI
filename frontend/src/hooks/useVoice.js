@@ -70,5 +70,10 @@ export function useVoice({ sessionData, enabled = true }) {
     }
   }, [enabled, sessionData, speakOpenAI, speakBrowser]);
 
-  return { speak, stop, isSpeaking };
+  // Call this when mic recording starts — interrupts AI speech instantly
+  const interrupt = useCallback(() => {
+    stop();
+  }, [stop]);
+
+  return { speak, stop, interrupt, isSpeaking };
 }

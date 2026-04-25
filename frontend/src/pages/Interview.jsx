@@ -50,7 +50,7 @@ function Interview() {
   // Voice & anti-cheat
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isFeedbackStreaming, setIsFeedbackStreaming] = useState(false);
-  const { speak, stop: stopSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
+  const { speak, stop: stopSpeech, interrupt: interruptSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
   const { tabSwitches, totalViolations, riskLevel, riskColor, onPaste } = useAntiCheat({
     enabled: true,
     onViolation: (v) => console.warn('[AntiCheat]', v),
@@ -779,36 +779,69 @@ function Interview() {
           <div>
             <div className="card flex flex-col" style={{height: '70vh', minHeight: '520px'}}>
               {/* AI Presence Zone */}
-              <div className="border-b border-gray-100 px-5 py-3 flex items-center gap-3 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-xl flex-shrink-0">
-                <div className={`relative flex-shrink-0 w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-sm ${isSpeaking || isGeneratingQuestion ? 'ring-2 ring-indigo-300 ring-offset-1' : ''}`}>
-                  {(isSpeaking || isGeneratingQuestion) && (
-                    <span className="absolute inset-0 rounded-full bg-indigo-400 animate-ping opacity-40" />
-                  )}
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2" />
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-gray-900">AI Interviewer</div>
-                  <div className="text-xs text-gray-500">
-                    {isGeneratingQuestion ? 'Composing question...' : isSpeaking ? 'Speaking...' : isLoading ? 'Evaluating your answer...' : currentQuestion ? 'Waiting for your response' : 'Ready to begin'}
+              {(() => {
+                const aiState = isGeneratingQuestion ? 'thinking'
+                  : isLoading ? 'evaluating'
+                  : isSpeaking ? 'speaking'
+                  : currentQuestion ? 'waiting'
+                  : 'idle';
+                const stateConfig = {
+                  thinking:   { dot: 'bg-yellow-400', ring: 'ring-yellow-300', bg: 'from-yellow-50 to-amber-50',   label: 'Thinking...', sub: 'Composing your next question' },
+                  evaluating: { dot: 'bg-red-400',    ring: 'ring-red-300',    bg: 'from-red-50 to-orange-50',     label: 'Evaluating...', sub: 'Reading your answer carefully' },
+                  speaking:   { dot: 'bg-green-400',  ring: 'ring-green-300',  bg: 'from-green-50 to-emerald-50',  label: 'Speaking', sub: 'Listen to the question' },
+                  waiting:    { dot: 'bg-blue-400',   ring: 'ring-blue-200',   bg: 'from-blue-50 to-indigo-50',    label: 'Waiting', sub: 'Ready for your answer' },
+                  idle:       { dot: 'bg-gray-300',   ring: 'ring-gray-200',   bg: 'from-gray-50 to-slate-50',     label: 'AI Interviewer', sub: 'Click Generate Question to begin' },
+                };
+                const cfg = stateConfig[aiState];
+                const isActive = aiState !== 'idle' && aiState !== 'waiting';
+                return (
+                  <div className={`border-b border-gray-100 px-5 py-3 flex items-center gap-3 bg-gradient-to-r ${cfg.bg} rounded-t-xl flex-shrink-0`}>
+                    <div className={`relative flex-shrink-0 w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-sm ${isActive ? `ring-2 ${cfg.ring} ring-offset-1` : ''}`}>
+                      {isActive && (
+                        <span className={`absolute inset-0 rounded-full ${cfg.dot} animate-ping opacity-30`} />
+                      )}
+                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2" />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">{cfg.label}</span>
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                      </div>
+                      <div className="text-xs text-gray-500">{cfg.sub}</div>
+                    </div>
+                    <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+                      {currentQuestion && (
+                        <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                          Q{interviewStats.questionsAsked}
+                        </span>
+                      )}
+                      {aiState === 'thinking' && (
+                        <span className="flex gap-1 items-center">
+                          {[0,1,2].map(i => (
+                            <span key={i} className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-bounce" style={{animationDelay: `${i*0.18}s`}} />
+                          ))}
+                        </span>
+                      )}
+                      {aiState === 'evaluating' && (
+                        <span className="flex gap-1 items-center">
+                          {[0,1,2].map(i => (
+                            <span key={i} className="w-1.5 h-1.5 bg-red-400 rounded-full animate-bounce" style={{animationDelay: `${i*0.18}s`}} />
+                          ))}
+                        </span>
+                      )}
+                      {aiState === 'speaking' && (
+                        <span className="flex gap-0.5 items-end">
+                          {[5,9,7,11,6].map((h, i) => (
+                            <span key={i} className="w-1 bg-green-500 rounded-full animate-bounce" style={{height: `${h}px`, animationDelay: `${i*0.1}s`}} />
+                          ))}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="ml-auto flex items-center gap-2 flex-shrink-0">
-                  {currentQuestion && (
-                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
-                      Q{interviewStats.questionsAsked}
-                    </span>
-                  )}
-                  {isSpeaking && (
-                    <span className="flex gap-0.5 items-end">
-                      {[6,10,8].map((h, i) => (
-                        <span key={i} className="w-1 bg-indigo-500 rounded-full animate-bounce" style={{height: `${h}px`, animationDelay: `${i * 0.12}s`}} />
-                      ))}
-                    </span>
-                  )}
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -997,10 +1030,11 @@ function Interview() {
                       )}
                     </button>
                     
-                    <MicButton 
+                    <MicButton
                       onTranscript={(text) => setInput(text)}
                       provider={sessionData.provider}
                       sessionId={sessionData.session_id}
+                      onStartRecording={interruptSpeech}
                     />
                     <button
                       onClick={requestFollowup}

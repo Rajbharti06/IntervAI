@@ -7,6 +7,8 @@ import uuid
 import re
 import json
 import random
+import time
+import threading
 from . import soul_engine, document_engine, speech_analyzer, gamification, company_tracks
 from . import llm_client
 
@@ -26,6 +28,7 @@ router = APIRouter()
 # In-memory store for active interview sessions
 # In a real application, this would be a database or a more robust session management system
 active_sessions = {}
+_prefetch_cache: dict[str, str] = {}   # session_id → pre-generated next question
 DIFFICULTY_LEVELS = ("basic", "medium", "hard")
 LOCAL_QUESTION_POOL = {
     "basic": [
@@ -1507,19 +1510,36 @@ def stream_question(session_id: str):
                                   headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
+    provider = session['provider']
+    model = session.get('model') or llm_client.get_default_model(provider)
+    api_key = session['api_key']
+
+    # ── Serve from prefetch cache if available ────────────────────────────────
+    cached_q = _prefetch_cache.pop(session_id, None)
+    if cached_q:
+        session.setdefault('questions_asked', []).append(cached_q)
+        session['current_question'] = cached_q
+        _note_session_question(session, cached_q)
+        def _cached_gen():
+            for word in cached_q.split():
+                yield f"data: {json.dumps(word + ' ')}\n\n"
+                time.sleep(0.02)
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_cached_gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     soul_prompt = soul_engine.build_question_prompt(
         profile=profile,
         question_number=len(session.get("questions_asked", [])) + 1,
         last_score=session.get("last_score_10"),
     )
     messages = [{"role": "user", "content": soul_prompt}]
-    provider = session['provider']
-    model = session.get('model') or llm_client.get_default_model(provider)
-    api_key = session['api_key']
 
     accumulated = []
 
     def _gen():
+        # Human-like thinking pause before first token
+        time.sleep(0.8)
         try:
             for chunk in llm_client.stream_llm(provider, api_key, model, messages, max_tokens=400):
                 accumulated.append(chunk)
@@ -1595,7 +1615,25 @@ def stream_answer_feedback(session_id: str, answer: str):
 
     accumulated = []
 
+    def _prefetch_next(sid: str, sess: dict, prof: dict, prov: str, akey: str, mdl: str):
+        """Background thread: pre-generate the next question and cache it."""
+        try:
+            q_num = len(sess.get("questions_asked", [])) + 1
+            last_sc = sess.get("last_score_10")
+            prompt = soul_engine.build_question_prompt(profile=prof, question_number=q_num, last_score=last_sc)
+            msgs = [{"role": "user", "content": prompt}]
+            chunks = []
+            for ch in llm_client.stream_llm(prov, akey, mdl, msgs, max_tokens=400):
+                chunks.append(ch)
+            q_text = "".join(chunks).strip()
+            if q_text and not _is_repeat(sess, q_text):
+                _prefetch_cache[sid] = q_text
+        except Exception:
+            pass  # silent — fallback will generate live
+
     def _gen():
+        # Evaluating pause — feels like AI is actually reading the answer
+        time.sleep(0.9)
         try:
             for chunk in llm_client.stream_llm(provider, api_key, model, messages, max_tokens=600):
                 accumulated.append(chunk)
@@ -1609,6 +1647,14 @@ def stream_answer_feedback(session_id: str, answer: str):
             _persist_answer(session, answer, score, eval_data, analysis_dict)
             yield f"data: [META]{json.dumps(eval_data)}\n\n"
             yield "data: [DONE]\n\n"
+            # Pre-generate next question in background (only when score >= 6 — no follow-up)
+            if score >= 6:
+                prof_snap = dict(session.get("soul_profile") or {})
+                threading.Thread(
+                    target=_prefetch_next,
+                    args=(session_id, session, prof_snap, provider, api_key, model),
+                    daemon=True,
+                ).start()
         except Exception as exc:
             yield f"data: [ERROR]{str(exc)}\n\n"
             yield "data: [DONE]\n\n"

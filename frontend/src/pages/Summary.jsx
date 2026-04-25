@@ -79,6 +79,23 @@ function Summary() {
 
   const weakAreasIsObject = summary && summary.weak_areas && typeof summary.weak_areas === 'object' && !Array.isArray(summary.weak_areas) && Object.keys(summary.weak_areas).length > 0;
 
+  // Derive mistake clusters from qa_pairs
+  const topicPerf = {};
+  (summary?.qa_pairs || []).forEach(pair => {
+    const topic = pair.topic_tag || 'General';
+    if (!topicPerf[topic]) topicPerf[topic] = { scores: [], tips: [] };
+    topicPerf[topic].scores.push(pair.score || 0);
+    if (pair.improvement_tip) topicPerf[topic].tips.push(pair.improvement_tip);
+  });
+  const topicList = Object.entries(topicPerf).map(([topic, data]) => ({
+    topic,
+    avg: data.scores.reduce((a, b) => a + b, 0) / data.scores.length,
+    count: data.scores.length,
+    tip: data.tips[0] || null,
+  })).sort((a, b) => a.avg - b.avg);
+  const weakTopics = topicList.filter(t => t.avg < 7);
+  const strongTopics = topicList.filter(t => t.avg >= 8);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -353,131 +370,114 @@ function Summary() {
                   </div>
                 </div>
 
-                {/* Weak Areas */}
-                {(Array.isArray(summary.weak_areas) && summary.weak_areas.length > 0) && (
-                  <div className="mt-6 bg-red-50 rounded-xl p-6">
-                    <h3 className="text-lg font-semibold text-red-900 mb-4 flex items-center">
-                      <svg className="w-5 h-5 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                      </svg>
-                      Areas for Improvement
-                    </h3>
-                    <ul className="space-y-2">
-                      {summary.weak_areas.map((area, idx) => (
-                        <li key={idx} className="flex items-start">
-                          <div className="w-2 h-2 bg-red-400 rounded-full mt-2 mr-3 flex-shrink-0"></div>
-                          <span className="text-red-800">{area}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {weakAreasIsObject && (
-                  <div className="mt-6 bg-red-50 rounded-xl p-6">
-                    <h3 className="text-lg font-semibold text-red-900 mb-4 flex items-center">
-                      <svg className="w-5 h-5 text-red-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                      </svg>
-                      Detailed Areas for Improvement
-                    </h3>
-                    <div className="space-y-4">
-                      {Object.entries(summary.weak_areas).map(([topic, entries]) => (
-                        <div key={topic} className="bg-white rounded-lg p-4">
-                          <h4 className="font-semibold text-red-900 mb-2">{topic}</h4>
-                          {Array.isArray(entries) && entries.length > 0 && (
-                            <div className="space-y-2">
-                              {entries.map((e, i) => (
-                                <div key={i} className="text-sm text-red-800 bg-red-100 rounded p-2">
-                                  {e?.question && <div className="font-medium">Q: {e.question}</div>}
-                                  {e?.improvement_tips && <div className="mt-1">💡 {e.improvement_tips}</div>}
-                                </div>
-                              ))}
+                {/* Mistake Clusters */}
+                {topicList.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="font-semibold text-gray-900 mb-3">Topic Performance</h3>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {topicList.map(({ topic, avg, count, tip }) => {
+                        const isWeak = avg < 7;
+                        const isStrong = avg >= 8;
+                        return (
+                          <div key={topic} className={`rounded-xl p-4 border ${isWeak ? 'bg-red-50 border-red-200' : isStrong ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-sm font-semibold ${isWeak ? 'text-red-800' : isStrong ? 'text-green-800' : 'text-yellow-800'}`}>{topic}</span>
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isWeak ? 'bg-red-200 text-red-700' : isStrong ? 'bg-green-200 text-green-700' : 'bg-yellow-200 text-yellow-700'}`}>{avg.toFixed(1)}/10</span>
                             </div>
-                          )}
-                        </div>
-                      ))}
+                            <div className="w-full bg-white rounded-full h-1.5 mb-2">
+                              <div className={`h-1.5 rounded-full ${isWeak ? 'bg-red-400' : isStrong ? 'bg-green-400' : 'bg-yellow-400'}`} style={{width: `${Math.min(100, avg * 10)}%`}} />
+                            </div>
+                            {isWeak && tip && <p className="text-xs text-red-700">💡 {tip}</p>}
+                            {isStrong && <p className="text-xs text-green-700">✓ Strong area — keep it up</p>}
+                          </div>
+                        );
+                      })}
                     </div>
+                    {weakTopics.length > 0 && (
+                      <div className="mt-4 bg-red-50 border border-red-200 rounded-xl p-4">
+                        <p className="text-sm font-semibold text-red-800 mb-1">You struggle with:</p>
+                        <p className="text-sm text-red-700">{weakTopics.map(t => t.topic).join(' · ')}</p>
+                        <p className="text-xs text-red-600 mt-1">Focus your next 3 days here.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Interview Transcript */}
+              {/* Interview Replay */}
               <div className="bg-white rounded-2xl shadow-xl p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2 flex items-center">
                   <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3">
                     <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.013 8.013 0 01-7-4L5 20l4-1a8.014 8.014 0 01-2-7c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  Interview Transcript
+                  Interview Replay
                 </h2>
+                <p className="text-sm text-gray-500 mb-6">Full Q→A→Feedback timeline</p>
 
                 {hasPairs ? (
-                  <div className="space-y-6">
-                    {summary.qa_pairs.map((pair, idx) => (
-                      <div key={idx} className="bg-gray-50 rounded-xl p-6 border-l-4 border-blue-500">
-                        <div className="mb-4">
-                          <div className="flex items-center mb-2">
-                            <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                              Question {idx + 1}
-                            </span>
-                          </div>
-                          <p className="text-gray-900 font-medium">{pair.question}</p>
-                        </div>
-                        
-                        <div className="mb-4">
-                          <div className="flex items-center mb-2">
-                            <span className="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                              Your Answer
-                            </span>
-                          </div>
-                          <p className="text-gray-700">{pair.user_answer}</p>
-                        </div>
-
-                        {pair.feedback && (
-                          <div className="bg-purple-50 rounded-lg p-4">
-                            <div className="flex items-center mb-2">
-                              <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2.5 py-0.5 rounded-full">
-                                AI Feedback
-                              </span>
+                  <div className="space-y-0">
+                    {summary.qa_pairs.map((pair, idx) => {
+                      const sc = pair.score || 0;
+                      const scoreBg = sc >= 8 ? 'bg-green-500' : sc >= 6 ? 'bg-yellow-500' : 'bg-red-500';
+                      const borderCol = sc >= 8 ? 'border-green-400' : sc >= 6 ? 'border-yellow-400' : 'border-red-400';
+                      const isLast = idx === summary.qa_pairs.length - 1;
+                      return (
+                        <div key={idx} className="flex gap-4">
+                          {/* Timeline spine */}
+                          <div className="flex flex-col items-center">
+                            <div className={`w-8 h-8 rounded-full ${scoreBg} flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow`}>
+                              {idx + 1}
                             </div>
-                            <p className="text-purple-800 text-sm">{pair.feedback}</p>
+                            {!isLast && <div className="w-0.5 flex-1 bg-gray-200 my-1" />}
                           </div>
-                        )}
-                      </div>
-                    ))}
+                          {/* Content */}
+                          <div className={`flex-1 pb-8 ${isLast ? '' : ''}`}>
+                            <div className={`bg-gray-50 rounded-xl p-5 border-l-4 ${borderCol}`}>
+                              {/* Question */}
+                              <div className="flex items-start justify-between gap-3 mb-3">
+                                <p className="text-sm font-semibold text-gray-900 leading-snug">{pair.question}</p>
+                                <span className={`flex-shrink-0 text-xs font-bold px-2 py-1 rounded-full text-white ${scoreBg}`}>{sc}/10</span>
+                              </div>
+                              {/* Answer */}
+                              <div className="mb-3">
+                                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Your Answer</span>
+                                <p className="text-sm text-gray-700 mt-1 leading-relaxed">{pair.user_answer}</p>
+                              </div>
+                              {/* Feedback */}
+                              {pair.feedback && (
+                                <div className="bg-white rounded-lg p-3 border border-gray-200">
+                                  <span className="text-xs font-medium text-indigo-600 uppercase tracking-wide">AI Feedback</span>
+                                  <p className="text-xs text-gray-700 mt-1 leading-relaxed">{pair.feedback}</p>
+                                  {pair.improvement_tip && (
+                                    <p className="text-xs text-amber-700 mt-2 bg-amber-50 rounded px-2 py-1">💡 {pair.improvement_tip}</p>
+                                  )}
+                                </div>
+                              )}
+                              {pair.topic_tag && (
+                                <div className="mt-2">
+                                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{pair.topic_tag}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : hasMessages ? (
                   <div className="space-y-4">
                     {messages.map((msg, idx) => (
-                      <div key={idx} className={`p-4 rounded-xl ${
-                        msg.role === 'user' 
-                          ? 'bg-blue-50 border-l-4 border-blue-500' 
-                          : 'bg-gray-50 border-l-4 border-gray-400'
-                      }`}>
-                        <div className="flex items-center mb-2">
-                          <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${
-                            msg.role === 'user'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {msg.role === 'user' ? 'You' : 'AI'}
-                          </span>
-                        </div>
-                        <p className="text-gray-700 whitespace-pre-wrap">{msg.text}</p>
+                      <div key={idx} className={`p-4 rounded-xl ${msg.role === 'user' ? 'bg-blue-50 border-l-4 border-blue-500' : 'bg-gray-50 border-l-4 border-gray-400'}`}>
+                        <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${msg.role === 'user' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>{msg.role === 'user' ? 'You' : 'AI'}</span>
+                        <p className="text-gray-700 whitespace-pre-wrap mt-2">{msg.text}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="text-center py-8">
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.013 8.013 0 01-7-4L5 20l4-1a8.014 8.014 0 01-2-7c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
-                      </svg>
-                    </div>
-                    <p className="text-gray-500">No transcript available</p>
-                  </div>
+                  <p className="text-center text-gray-500 py-8">No transcript available</p>
                 )}
               </div>
             </>

@@ -3,7 +3,7 @@ import { API_BASE } from '../config';
 
 const BROWSER_STT = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
-export default function MicButton({ onTranscript, provider, sessionId, disabled = false }) {
+export default function MicButton({ onTranscript, provider, sessionId, disabled = false, onStartRecording }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
@@ -66,7 +66,8 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
     recognitionRef.current = rec;
     rec.start();
     setIsRecording(true);
-  }, [onTranscript]);
+    onStartRecording?.();
+  }, [onTranscript, onStartRecording]);
 
   // ── Whisper STT (OpenAI / Groq — records WebM blob, sends to backend) ────────
   const startWhisperSTT = useCallback(async () => {
@@ -108,6 +109,7 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
 
       rec.start(100);
       setIsRecording(true);
+      onStartRecording?.();
     } catch (err) {
       setError('Microphone access denied.');
       setTimeout(() => setError(null), 3000);
