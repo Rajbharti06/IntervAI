@@ -1,0 +1,23 @@
+{
+  "name": "intervai",
+  "version": "1.0.0",
+  "description": "> **Old-school preparation, new-school intelligence.**\r > IntervAI is an AI-powered mock interview platform that doesn’t just ask questions — it *thinks with you*, adapts to you, and pushes you one level higher every round.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rajbharti06/IntervAI.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Rajbharti06/IntervAI/issues"
+  },
+  "homepage": "https://github.com/Rajbharti06/IntervAI#readme"
+}
