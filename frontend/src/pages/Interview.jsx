@@ -8,6 +8,7 @@ import GamificationBar from '../components/GamificationBar';
 import StarMethodHelper from '../components/StarMethodHelper';
 import { useVoice } from '../hooks/useVoice';
 import { useAntiCheat } from '../hooks/useAntiCheat';
+import { useSilenceDetector } from '../hooks/useSilenceDetector';
 
 function Interview() {
   const location = useLocation();
@@ -50,10 +51,19 @@ function Interview() {
   // Voice & anti-cheat
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isFeedbackStreaming, setIsFeedbackStreaming] = useState(false);
-  const { speak, stop: stopSpeech, interrupt: interruptSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
+  const { speak, speakChunk, flushSentenceBuffer, stop: stopSpeech, interrupt: interruptSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
   const { tabSwitches, totalViolations, integrityScore, riskLevel, riskColor, onPaste } = useAntiCheat({
     enabled: true,
     onViolation: (v) => console.warn('[AntiCheat]', v),
+  });
+
+  useSilenceDetector({
+    currentQuestion,
+    inputValue: input,
+    isLoading: isLoading || isGeneratingQuestion,
+    isSpeaking,
+    enabled: voiceEnabled,
+    onNudge: (phrase) => speak(phrase),
   });
 
   // Initialize session data
@@ -302,12 +312,14 @@ function Interview() {
             try {
               const chunk = JSON.parse(raw);
               accumulated += chunk;
+              speakChunk(chunk);
               setMessages(prev => prev.map(m =>
                 m.id === msgId ? { ...m, content: accumulated } : m
               ));
             } catch {
               // raw text not JSON (demo mode word-by-word)
               accumulated += raw;
+              speakChunk(raw);
               setMessages(prev => prev.map(m =>
                 m.id === msgId ? { ...m, content: accumulated } : m
               ));
@@ -319,7 +331,13 @@ function Interview() {
         const finalMsg = { id: msgId, type: 'question', content: accumulated, timestamp: new Date().toISOString() };
         setMessages(prev => prev.map(m => m.id === msgId ? finalMsg : m));
         setCurrentQuestion(finalMsg);
-        speak(accumulated);
+        // For browser TTS: flush any remaining sentence in the buffer
+        // For OpenAI: speak the full text now (TTS isn't streamed)
+        if (sessionData?.provider === 'openai') {
+          speak(accumulated);
+        } else {
+          flushSentenceBuffer();
+        }
         setIsGeneratingQuestion(false);
         return;
       }
@@ -542,6 +560,7 @@ function Interview() {
       setMessages(prev => [...prev, message]);
       setCurrentQuestion(message);
       setInterviewStats(prev => ({ ...prev, questionsAsked: prev.questionsAsked + 1 }));
+      speak(q);
     } catch (err) {
       console.error('Follow-up error:', err);
     }
@@ -1065,7 +1084,7 @@ function Interview() {
                         e.target.value = '';
                       }}
                     />
-                    <div className="mt-2 flex items-center gap-3">
+                    <div className="mt-2 flex items-center gap-3 flex-wrap">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
@@ -1094,6 +1113,20 @@ function Interview() {
                       <span>⭐</span>
                       STAR Helper
                     </button>
+                    {/* Word count — turns amber at 80w, red at 130w */}
+                    {(() => {
+                      const wc = input.trim() ? input.trim().split(/\s+/).filter(Boolean).length : 0;
+                      if (wc < 20) return null;
+                      const isVerbose = wc >= 130;
+                      const isWarning = wc >= 80;
+                      return (
+                        <span className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full transition-colors ${
+                          isVerbose ? 'bg-red-100 text-red-700' : isWarning ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+                        }`} title={isVerbose ? 'Very long — be more concise' : isWarning ? 'Getting long — consider trimming' : ''}>
+                          {wc}w{isVerbose ? ' — be concise' : isWarning ? ' — trim if possible' : ''}
+                        </span>
+                      );
+                    })()}
                     </div>
                     <StarMethodHelper visible={showStarHelper} />
                   </div>
