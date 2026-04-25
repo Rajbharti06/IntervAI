@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-
 import axios from 'axios';
+import { PERSONALITIES, DEFAULT_PERSONALITY } from '../config/personality';
 
 import { API_BASE } from '../config';
 import { useNavigate } from 'react-router-dom';
@@ -17,6 +17,7 @@ function Setup() {
   const [companyTrack, setCompanyTrack] = useState('');
   const [interviewType, setInterviewType] = useState('general');
   const [pressureLevel, setPressureLevel] = useState('none');
+  const [personality, setPersonality] = useState(DEFAULT_PERSONALITY);
   const [tracks, setTracks] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -267,13 +268,14 @@ function Setup() {
             difficulty,
             timeLimitSec,
             stressMode,
+            personality,
             startedAt: Date.now(),
           })
         );
       } catch {}
 
       navigate('/interview', {
-        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode, company_track: companyTrack, interview_type: interviewType, track_info: response.data.track_info, pressure_level: pressureLevel }
+        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode, personality, company_track: companyTrack, interview_type: interviewType, track_info: response.data.track_info, pressure_level: pressureLevel }
       });
     } catch (error) {
       console.error('Error starting interview:', error);
@@ -349,8 +351,80 @@ function Setup() {
         </div>
       </div>
 
+      {/* Pricing */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+        <div className="text-center mb-8">
+          <h2 className="text-2xl font-bold text-gray-900">Simple pricing</h2>
+          <p className="text-gray-500 mt-1">Bring your own API key — we never store it.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Starter */}
+          <div className="card p-6 flex flex-col">
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Starter</p>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="text-3xl font-bold text-gray-900">Free</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">No card needed</p>
+            </div>
+            <ul className="space-y-2 text-sm text-gray-600 flex-1">
+              {['5 interview sessions / month', 'All AI providers', 'Basic feedback & scoring', 'Friendly Mentor persona', 'Session history (last 5)'].map(f => (
+                <li key={f} className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a href="#setup-form" className="mt-6 btn btn-outline w-full text-center">Get started free</a>
+          </div>
+
+          {/* Pro */}
+          <div className="card p-6 flex flex-col border-2 border-indigo-500 relative">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-500 text-white text-xs font-semibold px-3 py-1 rounded-full">Most popular</div>
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Pro</p>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="text-3xl font-bold text-gray-900">$12</span>
+                <span className="text-gray-500 text-sm">/ mo</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Cancel anytime</p>
+            </div>
+            <ul className="space-y-2 text-sm text-gray-600 flex-1">
+              {['Unlimited sessions', 'All 4 interviewer personalities', 'Voice TTS + Whisper STT', 'Live interruption system', 'Growth plan after each session', 'Unlimited session history', 'Priority support'].map(f => (
+                <li key={f} className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-indigo-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a href="#setup-form" className="mt-6 btn btn-primary w-full text-center">Start Pro</a>
+          </div>
+
+          {/* Teams */}
+          <div className="card p-6 flex flex-col">
+            <div className="mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Teams</p>
+              <div className="mt-2 flex items-baseline gap-1">
+                <span className="text-3xl font-bold text-gray-900">$39</span>
+                <span className="text-gray-500 text-sm">/ mo</span>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Up to 10 seats</p>
+            </div>
+            <ul className="space-y-2 text-sm text-gray-600 flex-1">
+              {['Everything in Pro', 'Team analytics dashboard', 'Shared session history', 'Custom interview domains', 'ATS integration (coming soon)', 'Dedicated support'].map(f => (
+                <li key={f} className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"/></svg>
+                  {f}
+                </li>
+              ))}
+            </ul>
+            <a href="#setup-form" className="mt-6 btn btn-outline w-full text-center">Contact us</a>
+          </div>
+        </div>
+      </div>
+
       {/* Setup Form */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+      <div id="setup-form" className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
         <div className="card card-hover animate-fadeIn">
           <div className="p-8">
             <div className="text-center mb-8">
@@ -530,6 +604,27 @@ function Setup() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* Interviewer Personality */}
+              <div>
+                <label className="form-label">Interviewer Personality</label>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {Object.values(PERSONALITIES).map(p => (
+                    <div
+                      key={p.id}
+                      className={`cursor-pointer rounded-lg border-2 p-3 text-center transition-all duration-200 ${personality === p.id ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                      onClick={() => setPersonality(p.id)}
+                    >
+                      <div className="text-2xl mb-1">{p.icon}</div>
+                      <div className="text-xs font-semibold text-gray-800">{p.name}</div>
+                      <div className="text-xs text-gray-500 mt-0.5 leading-tight">{p.desc}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  Controls how the AI interviewer speaks, paces, and reacts to your answers.
+                </p>
               </div>
 
               {/* Topics Override */}

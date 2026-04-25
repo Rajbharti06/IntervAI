@@ -1,17 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routes import router as routes_router
+from .config import get_cors_origins
 
-app = FastAPI()
-
-# Add CORS middleware to allow frontend requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
+app = FastAPI(
+    title="IntervAI API",
+    description="AI mock interview platform backend",
+    version="1.0.0",
 )
 
-# Include the API router so endpoints are registered properly
+origins = get_cors_origins()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(routes_router)

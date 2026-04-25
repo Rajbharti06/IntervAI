@@ -11,13 +11,13 @@ import time
 import threading
 from . import soul_engine, document_engine, speech_analyzer, gamification, company_tracks
 from . import llm_client
+from .config import get_cors_origins
 
 app = FastAPI()
 
-# Enable CORS for this sub-app (mounted in main)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

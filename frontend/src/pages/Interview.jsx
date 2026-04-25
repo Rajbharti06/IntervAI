@@ -9,6 +9,7 @@ import StarMethodHelper from '../components/StarMethodHelper';
 import { useVoice } from '../hooks/useVoice';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import { useSilenceDetector } from '../hooks/useSilenceDetector';
+import { useInterruptDetector } from '../hooks/useInterruptDetector';
 
 function Interview() {
   const location = useLocation();
@@ -51,7 +52,7 @@ function Interview() {
   // Voice & anti-cheat
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isFeedbackStreaming, setIsFeedbackStreaming] = useState(false);
-  const { speak, speakChunk, flushSentenceBuffer, stop: stopSpeech, interrupt: interruptSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
+  const { speak, speakWithFiller, speakChunk, flushSentenceBuffer, stop: stopSpeech, interrupt: interruptSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
   const { tabSwitches, totalViolations, integrityScore, riskLevel, riskColor, onPaste } = useAntiCheat({
     enabled: true,
     onViolation: (v) => console.warn('[AntiCheat]', v),
@@ -62,8 +63,19 @@ function Interview() {
     inputValue: input,
     isLoading: isLoading || isGeneratingQuestion,
     isSpeaking,
+    personality: sessionData?.personality,
     enabled: voiceEnabled,
-    onNudge: (phrase) => speak(phrase),
+    onNudge: (phrase) => speakWithFiller(phrase),
+  });
+
+  const { isArmed } = useInterruptDetector({
+    inputValue: input,
+    currentQuestion,
+    isLoading: isLoading || isGeneratingQuestion,
+    isSpeaking,
+    personality: sessionData?.personality,
+    enabled: voiceEnabled,
+    onInterrupt: (phrase) => speakWithFiller(phrase),
   });
 
   // Initialize session data
@@ -79,6 +91,7 @@ function Interview() {
           difficulty: stateData.difficulty ?? stored.difficulty,
           timeLimitSec: stateData.timeLimitSec ?? stored.timeLimitSec,
           stressMode: stateData.stressMode ?? stored.stressMode,
+          personality: stateData.personality ?? stored.personality ?? 'friendly',
         };
         setSessionData(merged);
       } catch {
@@ -833,12 +846,14 @@ function Interview() {
                 const aiState = isGeneratingQuestion ? 'thinking'
                   : isLoading ? 'evaluating'
                   : isSpeaking ? 'speaking'
+                  : isArmed ? 'armed'
                   : currentQuestion ? 'waiting'
                   : 'idle';
                 const stateConfig = {
                   thinking:   { dot: 'bg-yellow-400', ring: 'ring-yellow-300', bg: 'from-yellow-50 to-amber-50',   label: 'Thinking...', sub: 'Composing your next question' },
                   evaluating: { dot: 'bg-red-400',    ring: 'ring-red-300',    bg: 'from-red-50 to-orange-50',     label: 'Evaluating...', sub: 'Reading your answer carefully' },
                   speaking:   { dot: 'bg-green-400',  ring: 'ring-green-300',  bg: 'from-green-50 to-emerald-50',  label: 'Speaking', sub: 'Listen to the question' },
+                  armed:      { dot: 'bg-amber-400',  ring: 'ring-amber-300',  bg: 'from-amber-50 to-yellow-50',   label: 'About to speak', sub: 'Something caught my attention' },
                   waiting:    { dot: 'bg-blue-400',   ring: 'ring-blue-200',   bg: 'from-blue-50 to-indigo-50',    label: 'Waiting', sub: 'Ready for your answer' },
                   idle:       { dot: 'bg-gray-300',   ring: 'ring-gray-200',   bg: 'from-gray-50 to-slate-50',     label: 'AI Interviewer', sub: 'Click Generate Question to begin' },
                 };
@@ -898,6 +913,20 @@ function Interview() {
                               <animate attributeName="opacity" values="0.3;0.9;0.3" dur="0.9s" begin="0.6s" repeatCount="indefinite"/>
                             </circle>
                           </>
+                        ) : aiState === 'armed' ? (
+                          <>
+                            {/* Narrowed eyes — focused, about to speak */}
+                            <ellipse cx="14" cy="17" rx="3" ry="1.2" fill="white" opacity="0.9">
+                              <animate attributeName="ry" values="1.2;1.8;1.2" dur="1.8s" repeatCount="indefinite"/>
+                            </ellipse>
+                            <ellipse cx="26" cy="17" rx="3" ry="1.2" fill="white" opacity="0.9">
+                              <animate attributeName="ry" values="1.2;1.8;1.2" dur="1.8s" begin="0.3s" repeatCount="indefinite"/>
+                            </ellipse>
+                            {/* Tight mouth — holding a thought */}
+                            <path d="M14 26 L26 26" stroke="white" strokeWidth="1.5" strokeLinecap="round" opacity="0.7">
+                              <animate attributeName="opacity" values="0.4;0.9;0.4" dur="1.2s" repeatCount="indefinite"/>
+                            </path>
+                          </>
                         ) : (
                           <>
                             <circle cx="14" cy="17" r="3" fill="white" opacity="0.9"/>
@@ -939,6 +968,11 @@ function Interview() {
                           {[5,9,7,11,6].map((h, i) => (
                             <span key={i} className="w-1 bg-green-500 rounded-full animate-bounce" style={{height: `${h}px`, animationDelay: `${i*0.1}s`}} />
                           ))}
+                        </span>
+                      )}
+                      {aiState === 'armed' && (
+                        <span className="text-xs text-amber-700 font-medium animate-pulse">
+                          hold on...
                         </span>
                       )}
                     </div>
@@ -1200,6 +1234,12 @@ function Interview() {
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Difficulty</span>
                         <span className="font-medium capitalize">{sessionData.difficulty}</span>
+                      </div>
+                    )}
+                    {sessionData?.personality && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Persona</span>
+                        <span className="font-medium capitalize">{sessionData.personality}</span>
                       </div>
                     )}
                   </div>

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { getPersonality } from '../config/personality';
 
-const IDLE_NUDGES = [
+// Default pools used when personality doesn't override
+const DEFAULT_IDLE = [
   "Take your time — walk me through your initial thinking.",
   "What's the first thing that comes to mind for this?",
   "Let's break it down. What part of the question feels clear to you?",
@@ -8,7 +10,7 @@ const IDLE_NUDGES = [
   "No pressure — begin wherever feels natural.",
 ];
 
-const PAUSE_NUDGES = [
+const DEFAULT_PAUSE = [
   "Good start — keep going. What comes next?",
   "Interesting direction. Why specifically that approach?",
   "Can you be more specific there?",
@@ -16,8 +18,7 @@ const PAUSE_NUDGES = [
   "You're on the right track. What's the next logical step?",
 ];
 
-// Fires when the candidate has been typing for a long time (verbosity threshold)
-const VERBOSE_INTERRUPTS = [
+const DEFAULT_VERBOSE = [
   "Hold on — that's a lot of ground. What's your single most important point?",
   "Let me stop you there. Can you give me the core idea in two sentences?",
   "I want to make sure I follow — what's the central claim you're making?",
@@ -29,6 +30,7 @@ export function useSilenceDetector({
   inputValue,
   isLoading,
   isSpeaking,
+  personality,
   enabled = true,
   idleThresholdMs = 18000,
   pauseThresholdMs = 10000,
@@ -43,13 +45,25 @@ export function useSilenceDetector({
   const lastQId = useRef(null);
   const lastLen = useRef(0);
 
-  // Refs so timer callbacks always see current values (avoids stale closures)
   const isSpeakingRef = useRef(isSpeaking);
   const enabledRef = useRef(enabled);
   const onNudgeRef = useRef(onNudge);
   useEffect(() => { isSpeakingRef.current = isSpeaking; }, [isSpeaking]);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);
   useEffect(() => { onNudgeRef.current = onNudge; }, [onNudge]);
+
+  // Resolve phrase pools from personality or defaults
+  const persona = getPersonality(personality);
+  const idlePool = (persona.idleNudges?.length > 0) ? persona.idleNudges : DEFAULT_IDLE;
+  const pausePool = (persona.pauseNudges?.length > 0) ? persona.pauseNudges : DEFAULT_PAUSE;
+  const verbosePool = (persona.verboseInterrupts?.length > 0) ? persona.verboseInterrupts : DEFAULT_VERBOSE;
+
+  const idlePoolRef = useRef(idlePool);
+  const pausePoolRef = useRef(pausePool);
+  const verbosePoolRef = useRef(verbosePool);
+  useEffect(() => { idlePoolRef.current = idlePool; }, [JSON.stringify(idlePool)]);
+  useEffect(() => { pausePoolRef.current = pausePool; }, [JSON.stringify(pausePool)]);
+  useEffect(() => { verbosePoolRef.current = verbosePool; }, [JSON.stringify(verbosePool)]);
 
   const clearAll = useCallback(() => {
     clearTimeout(idleTimer.current);
@@ -58,8 +72,9 @@ export function useSilenceDetector({
     pauseTimer.current = null;
   }, []);
 
-  const fire = useCallback((pool) => {
+  const fire = useCallback((poolRef) => {
     if (!enabledRef.current || isSpeakingRef.current) return;
+    const pool = poolRef.current;
     const phrase = pool[nudgeIdx.current % pool.length];
     nudgeIdx.current += 1;
     onNudgeRef.current?.(phrase);
@@ -80,10 +95,9 @@ export function useSilenceDetector({
 
     idleTimer.current = setTimeout(() => {
       if (!hasTyped.current) {
-        fire(IDLE_NUDGES);
-        // Second nudge if still idle
+        fire(idlePoolRef);
         idleTimer.current = setTimeout(() => {
-          if (!hasTyped.current) fire(IDLE_NUDGES);
+          if (!hasTyped.current) fire(idlePoolRef);
         }, idleThresholdMs);
       }
     }, idleThresholdMs);
@@ -112,11 +126,10 @@ export function useSilenceDetector({
       pauseTimer.current = null;
 
       const words = inputValue.trim().split(/\s+/).filter(Boolean).length;
-
       if (words >= verbosityWords) {
-        pauseTimer.current = setTimeout(() => fire(VERBOSE_INTERRUPTS), verbosityPauseMs);
+        pauseTimer.current = setTimeout(() => fire(verbosePoolRef), verbosityPauseMs);
       } else if (words >= 20) {
-        pauseTimer.current = setTimeout(() => fire(PAUSE_NUDGES), pauseThresholdMs);
+        pauseTimer.current = setTimeout(() => fire(pausePoolRef), pauseThresholdMs);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
