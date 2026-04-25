@@ -227,7 +227,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 Copyright (c) 2026 IntervAI. All rights reserved.
 This is proprietary software — see [LICENSE](LICENSE) for terms.
-Commercial licensing and institutional use: aytraj05@gmail.com
+Commercial licensing and institutional use: https://rajbharti.in
 
 ---
 
