@@ -1,175 +1,163 @@
-# 🎤 IntervAI — Practice the Interview. Become the Candidate.
+# IntervAI — AI Mock Interview Platform
 
-> **Old-school preparation, new-school intelligence.**
-> IntervAI is an AI-powered mock interview platform that doesn't just ask questions — it *thinks with you*, adapts to you, and pushes you one level higher every round.
+> An AI interviewer that actually behaves like a human.
+> Silence detection. Live interruptions. Adaptive personality. Honest feedback.
 
 ---
 
-## 📸 Screenshots
+## Screenshots
 
-### Setup — Pick your provider, domain & difficulty
-
+### Setup — Provider, domain, difficulty, and interviewer personality
 ![Setup](screenshots/01_setup.png)
 
-### Interview — AI Presence Zone + full-width layout
-
+### Interview — AI Presence Zone + live avatar states
 ![Interview Ready](screenshots/02_interview_empty.png)
 
-### Interview — Question from NVIDIA Llama 3.3 70B
-
+### Interview — Question streaming with speaking indicator
 ![Interview Question](screenshots/03_interview_question.png)
 
-### Interview — Feedback with score, tip, and sidebar stats
-
+### Interview — Feedback with score, verdict, and improvement tip
 ![Interview Feedback](screenshots/04_interview_feedback.png)
 
-### Analysis Summary — XP, badges, communication stats, 7-day growth plan
-
+### Summary — XP, badges, communication stats, 7-day growth plan
 ![Summary](screenshots/05_summary.png)
 
 ### Dashboard — Score history and performance trend
-
 ![Dashboard](screenshots/06_dashboard.png)
 
 ---
 
-## 🧭 What is IntervAI?
+## What is IntervAI?
 
-**IntervAI** is a **realistic mock interview simulator** designed to feel like a tough-but-fair human interviewer.
+IntervAI is a **realistic mock interview simulator** built to feel like a real interviewer — not a chatbot.
 
-Not flashy. Not gimmicky. Just sharp questions, honest feedback, and pressure that makes you better.
-
-Think of IntervAI as:
-
-* 🧠 a **practice room** before the real room
-* 🎯 a **coach** that adjusts difficulty as you grow
-* ⏱️ a **stress trainer** when you want realism
-* 📊 a **mirror** that shows where you truly stand
-
-Built for engineers, students, and serious candidates.
+Most interview tools ask a question, wait for your answer, and give generic feedback. IntervAI **observes behavior** in real time: it detects when you hesitate, nudges you when you're silent too long, interrupts when you're rambling, and adapts its tone based on your chosen interviewer personality.
 
 ---
 
-## ✨ Feature Set (Phase 1 + Phase 2)
+## Feature Overview
 
-### Core Interview Engine
-* 📈 **Adaptive soul engine** — tracks confidence, topic depth, and adjusts difficulty round-by-round
-* 🧩 **Diverse question types**: Conceptual · Practical · Scenario-based · Coding · Behavioral · Case Study
-* 🔁 **Smart follow-ups** triggered when score < 7 — drills weak spots automatically
-* 🧮 **Answer evaluation** with score 0–10, short verdict, improvement tip, and topic tag
-* 📄 **Document upload** — attach your PDF/DOCX resume or study notes, AI generates questions from it
+### Behavioral Intelligence (what makes it different)
+
+| Behavior | How it works |
+|----------|-------------|
+| **Silence detection** | 18s idle → AI nudges you to start. 10s mid-answer pause → AI pushes you to continue |
+| **Verbose interrupt** | 130+ words typed with a 6s pause → AI cuts in: *"Hold on — what's your single most important point?"* |
+| **Content-aware interruption** | Detects hedging words, algorithm terms, filler, topic-jumping, vague claims → asks a targeted follow-up |
+| **Streaming TTS** | AI starts speaking sentences as they arrive — no waiting for the full response |
+| **Filler prefix** | Before nudges: *"Hmm, interesting."* / *"Noted."* — feels like a human collecting their thoughts |
+
+### Interviewer Personalities
+
+| Persona | Voice rate | Feel |
+|---------|-----------|------|
+| Friendly Mentor | 0.88x | Warm, encouraging, builds confidence |
+| Strict Interviewer | 1.0x | Formal, terse, high expectations |
+| Startup Founder | 1.12x | Impatient, challenging, high pressure |
+| Silent Observer | 0.83x | Minimal feedback, pressure through silence |
+
+### Interview Engine
+- **Adaptive soul engine** — tracks confidence, topic depth, adjusts difficulty round-by-round
+- **Question types**: Conceptual · Practical · Scenario · Coding · Behavioral · Case Study
+- **Smart follow-ups** — auto-triggered when score < 7, drills weak spots
+- **Document upload** — attach PDF/DOCX resume or notes, AI generates questions from it
+- **Company tracks** — FAANG, startup, consulting, and more
 
 ### Voice System
-* 🎙️ **Real Whisper STT** (OpenAI · Groq) — speak your answers, get text transcription
-* 🔊 **OpenAI TTS** — AI reads questions aloud with a natural voice (`nova`)
-* 🌐 **Browser speech fallback** — works on every provider, no API keys needed for TTS
-* 🔇 **Voice toggle** in header — mute/unmute in one click
+- **Whisper STT** (OpenAI · Groq) — speak your answers, get accurate transcription
+- **OpenAI TTS** — AI reads questions aloud with `nova` voice, streams audio
+- **Browser TTS fallback** — works on every provider without extra API keys
+- **Streaming TTS** — speaks sentence-by-sentence as question generates, not after
 
-### Anti-Cheat System
-* 🔍 **Tab-switch detection** — flags every time you leave the interview window
-* 📋 **Copy/paste monitoring** — detects suspicious large pastes
-* 🖱️ **Right-click blocked** — prevents "inspect element" shortcuts
-* 🚦 **Risk level indicator** — yellow/orange/red badge in header showing violation count
+### Anti-Cheat
+- Tab-switch detection, copy/paste monitoring, right-click blocked
+- Integrity score badge (green → yellow → orange → red) in header
 
 ### Interview UI
-* 🖥️ **Full-width immersive layout** — 95% viewport, up to 1400px, minimal chrome
-* 🤖 **AI Presence Zone** — pulsing avatar with live status: *Composing question / Speaking / Evaluating*
-* 📷 **Camera preview** — 180px tall, `object-cover` for clean framing
-* ⏱️ **Per-question countdown timer** with optional **stress mode** (audio beeps last 10s)
-* 📱 **Responsive** — single-column below 900px, 2-column (1fr + 320px sidebar) above
+- **AI Presence Zone** — animated SVG avatar with 6 live states: idle, waiting, thinking, evaluating, speaking, armed (about to interrupt)
+- Per-question countdown timer with **stress mode** (audio beeps last 10s)
+- Camera preview, STAR method helper, document upload
+- Word count indicator — amber at 80 words, red at 130 words
 
-### Gamification
-* 🏆 **XP system** — earn XP per answer, bonus for STAR answers and zero filler words
-* 🥇 **Achievement badges** — "First Step", "Streak", and more
-* 📊 **Communication stats** — filler word rate, confidence score, clarity score, avg word count
-* 🌱 **Growth plan** — personalized improvement roadmap generated at interview end
-
-### Session & History
-* 💾 **Dashboard history** — every completed interview is saved to localStorage
-* 📈 **Score trends** — track improvement across sessions
-* 🔄 **Session restore** — resume an in-progress interview on page reload
+### Gamification + Progress
+- XP per answer, bonus for STAR answers and zero filler words
+- Achievement badges, communication stats (filler rate, confidence, clarity)
+- Growth plan generated at session end
+- Dashboard with score history across all sessions
 
 ---
 
-## 🔌 AI Providers Supported
+## AI Providers
 
 | Provider | Questions | Whisper STT | Premium TTS |
 |----------|-----------|-------------|-------------|
-| **OpenAI** | ✅ | ✅ | ✅ `tts-1` |
-| **NVIDIA NIM** | ✅ | — | — (browser TTS) |
-| **Anthropic** | ✅ | — | — (browser TTS) |
-| **Google Gemini** | ✅ | — | — (browser TTS) |
-| **Groq** | ✅ | ✅ | — (browser TTS) |
-| **Together AI** | ✅ | — | — (browser TTS) |
-| **Perplexity** | ✅ | — | — (browser TTS) |
-| **Demo / Offline** | ✅ local bank | — | — (browser TTS) |
+| OpenAI | ✅ | ✅ | ✅ tts-1 |
+| Anthropic | ✅ | — | Browser TTS |
+| Google Gemini | ✅ | — | Browser TTS |
+| Groq | ✅ | ✅ | Browser TTS |
+| NVIDIA NIM | ✅ | — | Browser TTS |
+| Together AI | ✅ | — | Browser TTS |
+| Perplexity | ✅ | — | Browser TTS |
+| Demo / Offline | ✅ local bank | — | Browser TTS |
 
-> **NVIDIA NIM** — uses `meta/llama-3.3-70b-instruct` via `https://integrate.api.nvidia.com/v1`. Fully compatible with the OpenAI SDK.
-
-### Demo / Offline Mode
-
-No API keys? No problem. Set `api_key = demo` on the Setup page — IntervAI falls back to the built-in question bank automatically.
+> No API key? Set `api_key = demo` — IntervAI falls back to the built-in question bank.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 IntervAI/
-├── frontend/          React + Vite + Tailwind
+├── frontend/                  React + Vite + Tailwind
 │   └── src/
-│       ├── pages/     Interview.jsx · Setup.jsx · Summary.jsx · Dashboard.jsx
-│       ├── components/ MessageBubble · MicButton · GamificationBar · StarMethodHelper
-│       └── hooks/     useVoice.js · useAntiCheat.js
-└── backend/           FastAPI + Uvicorn
+│       ├── pages/             Interview.jsx · Setup.jsx · Summary.jsx · Dashboard.jsx
+│       ├── components/        MessageBubble · MicButton · GamificationBar · StarMethodHelper
+│       ├── hooks/             useVoice · useAntiCheat · useSilenceDetector · useInterruptDetector
+│       └── config/            personality.js
+└── backend/                   FastAPI + Uvicorn
     └── app/
-        ├── routes.py       all /interview/* endpoints (~1400 lines)
-        ├── soul_engine.py  adaptive question/evaluation prompt builder
-        └── llm_client.py   unified LLM abstraction (streaming + non-streaming)
+        ├── routes.py          All /interview/* endpoints
+        ├── soul_engine.py     Adaptive question/evaluation prompt builder
+        ├── llm_client.py      Unified LLM abstraction (streaming + non-streaming)
+        └── config.py          Settings (CORS origins, env vars)
 ```
 
 ### Key API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/interview/start` | Start session (provider, domain, difficulty, api_key) |
-| POST | `/interview/question` | Get next question (non-streaming) |
-| GET | `/interview/question/stream` | Get next question (SSE streaming) |
-| POST | `/interview/answer` | Submit answer — returns score, feedback, analysis |
-| GET | `/interview/answer/stream` | Submit answer (SSE streaming) |
-| POST | `/interview/followup` | Request follow-up question |
-| POST | `/interview/end` | End session — returns full summary + gamification |
-| POST | `/interview/transcribe` | Whisper STT (OpenAI or Groq) |
-| GET | `/interview/speak` | OpenAI TTS — returns audio/mpeg stream |
-| POST | `/interview/upload_document` | Upload PDF/DOCX/TXT for question generation |
-| POST | `/interview/growth_plan` | Generate personalized improvement plan |
-| GET | `/tracks` | Available company interview tracks |
+| POST | `/interview/start` | Start session |
+| GET | `/interview/question/stream` | Next question (SSE streaming) |
+| POST | `/interview/answer` | Submit answer — score, feedback, analysis |
+| POST | `/interview/followup` | Follow-up question |
+| POST | `/interview/end` | End session — summary + gamification |
+| POST | `/interview/transcribe` | Whisper STT |
+| POST | `/interview/speak` | OpenAI TTS — returns audio/mpeg |
+| POST | `/interview/upload_document` | Upload PDF/DOCX/TXT |
+| POST | `/interview/growth_plan` | Personalized improvement plan |
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
-### Option A: Docker
+### Docker (dev)
 
 ```bash
 docker-compose up --build
 # Frontend: http://localhost:5173
-# Backend:  http://localhost:8000
-# API docs: http://localhost:8000/docs
+# Backend:  http://localhost:8000/docs
 ```
 
-### Option B: Local Dev
-
-**Requirements**: Node.js ≥ 18, Python ≥ 3.11
+### Local dev
 
 ```bash
 # Backend
-cd IntervAI/backend
-./venv311/Scripts/python -m pip install -r requirements.txt
-./venv311/Scripts/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 
 # Frontend (new terminal)
-cd IntervAI/frontend
+cd frontend
 npm install
 npm run dev
 # → http://localhost:5173
@@ -177,53 +165,70 @@ npm run dev
 
 ---
 
-## 🎯 Recommended Usage
+## Deployment
 
-1. **Pick a real provider** (NVIDIA NIM is free to start — grab a key at `build.nvidia.com`)
-2. **Choose your domain** — Software Engineering, System Design, Behavioral, etc.
-3. **Set difficulty** to `medium` — the soul engine will adapt up/down from there
-4. **Enable camera** for a real interview feel
-5. **Enable voice** — hear questions read aloud, answer by mic or keyboard
-6. **After 3–5 questions**, end and review the Summary page — it shows exactly what to improve
-7. **Keep your sessions** — Dashboard tracks score trends across all interviews
+### Backend → Railway
+
+1. Connect this repo in Railway
+2. Set env var: `ALLOWED_ORIGINS=https://your-app.vercel.app`
+3. Railway auto-detects `railway.toml` and deploys
+
+### Frontend → Vercel
+
+1. Import repo, set root directory to `frontend/`
+2. Set env var: `VITE_API_BASE_URL=https://your-backend.railway.app`
+3. Deploy — `vercel.json` handles SPA routing
+
+### Self-hosted (Docker)
+
+```bash
+ALLOWED_ORIGINS=https://yourdomain.com \
+VITE_API_BASE_URL=https://yourdomain.com:8000 \
+docker compose -f docker-compose.prod.yml up -d
+```
 
 ---
 
-## 🧪 Troubleshooting
+## Pricing
+
+| Plan | Price | Sessions | Personalities | Voice |
+|------|-------|----------|--------------|-------|
+| Starter | Free | 5 / month | Friendly only | Browser TTS |
+| Pro | $12 / mo | Unlimited | All 4 | Whisper + OpenAI TTS |
+| Teams | $39 / mo | Unlimited | All 4 | Everything + team analytics |
+
+---
+
+## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
-| `ERR_CONNECTION_REFUSED` | Backend must run on `http://localhost:8000` |
+| `ERR_CONNECTION_REFUSED` | Backend must run on port 8000 |
 | Whisper STT fails | Falls back to browser speech automatically |
-| NVIDIA 401 | Check your `nvapi-...` key is valid |
-| Port conflict | `5173` or `8000` already in use — Vite will auto-try `5174` |
-| CORS error | CORS is open for all origins in dev — restart backend |
+| NVIDIA 401 | Check your `nvapi-...` key at build.nvidia.com |
+| CORS error in production | Set `ALLOWED_ORIGINS` env var on backend |
+| Voice not working | Browser requires HTTPS or localhost for Web Speech API |
 
 ---
 
-## 🛣️ Roadmap
+## Roadmap
 
-- [x] Phase 1: Full interview engine, soul engine, streaming, gamification, stress mode
-- [x] Phase 2: Voice I/O (Whisper + TTS), anti-cheat, session history, universal MicButton
-- [ ] Phase 3: AI Avatar (animated D-ID or NVIDIA ACE face)
-- [ ] Phase 4: Face detection (multiple faces), eye tracking, attention scoring
-- [ ] Phase 5: Enterprise — ATS integration, multi-tenant, team analytics
-
----
-
-## 🤍 Who This Is For
-
-* Students preparing for placements
-* Engineers grinding system design
-* Candidates tired of vague prep advice
-* Anyone who wants **honest interview practice**
+- [x] Phase 1: Interview engine, soul engine, streaming, gamification, stress mode
+- [x] Phase 2: Voice I/O (Whisper + TTS), anti-cheat, session history
+- [x] Phase 2.5: Behavioral intelligence — silence detection, content-aware interrupts, personality system
+- [x] Phase 3: Launch prep — Railway/Vercel deploy, production Docker, pricing page
+- [ ] Phase 4: AI Avatar (D-ID or NVIDIA ACE animated face)
+- [ ] Phase 5: Face detection, eye tracking, attention scoring
+- [ ] Phase 6: Enterprise — ATS integration, multi-tenant, team analytics
 
 ---
 
-## 📜 License
+## License
 
-MIT — add your preferred license.
+Copyright (c) 2026 IntervAI. All rights reserved.
+This is proprietary software — see [LICENSE](LICENSE) for terms.
+Commercial licensing and institutional use: aytraj05@gmail.com
 
 ---
 
-> Practice here — perform out there.
+> Practice here. Perform out there.
