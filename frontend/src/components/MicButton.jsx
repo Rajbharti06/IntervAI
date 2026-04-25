@@ -3,7 +3,10 @@ import { API_BASE } from '../config';
 
 const BROWSER_STT = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
-export default function MicButton({ onTranscript, provider, sessionId, disabled = false, onStartRecording }) {
+const SILENCE_THRESHOLD = 8;   // avg volume below this = silence (0–255 scale)
+const SILENCE_INTERVALS = 10;  // 10 × 500 ms = 5 seconds
+
+export default function MicButton({ onTranscript, provider, sessionId, disabled = false, onStartRecording, onSilenceDetected }) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
@@ -12,8 +15,56 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
   const chunksRef = useRef([]);
   const recognitionRef = useRef(null);
   const streamRef = useRef(null);
+  const silenceTimerRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const silenceCountRef = useRef(0);
+
+  const stopSilenceDetection = useCallback(() => {
+    if (silenceTimerRef.current) { clearInterval(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (audioContextRef.current) { audioContextRef.current.close().catch(() => {}); audioContextRef.current = null; }
+    silenceCountRef.current = 0;
+  }, []);
+
+  // AudioContext-based silence detection for whisper mode (we already have the stream)
+  const startAudioSilenceDetection = useCallback((stream) => {
+    if (!onSilenceDetected) return;
+    try {
+      const ctx = new AudioContext();
+      audioContextRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      ctx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      silenceCountRef.current = 0;
+      silenceTimerRef.current = setInterval(() => {
+        analyser.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length;
+        if (avg < SILENCE_THRESHOLD) {
+          if (++silenceCountRef.current >= SILENCE_INTERVALS) {
+            silenceCountRef.current = 0;
+            onSilenceDetected();
+          }
+        } else {
+          silenceCountRef.current = 0;
+        }
+      }, 500);
+    } catch {}
+  }, [onSilenceDetected]);
+
+  // Timer-based silence detection for browser STT (no direct stream access)
+  const startTimerSilenceDetection = useCallback(() => {
+    if (!onSilenceDetected) return;
+    silenceCountRef.current = 0;
+    silenceTimerRef.current = setInterval(() => {
+      if (++silenceCountRef.current >= SILENCE_INTERVALS) {
+        silenceCountRef.current = 0;
+        onSilenceDetected();
+      }
+    }, 500);
+  }, [onSilenceDetected]);
 
   const stopAll = useCallback(() => {
+    stopSilenceDetection();
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch {}
       recognitionRef.current = null;
@@ -26,7 +77,7 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
       streamRef.current = null;
     }
     setIsRecording(false);
-  }, []);
+  }, [stopSilenceDetection]);
 
   // ── Browser Web Speech API (works for ALL providers, no API key) ─────────────
   const startBrowserSTT = useCallback(() => {
@@ -40,6 +91,7 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
     let finalTranscript = '';
 
     rec.onresult = (e) => {
+      silenceCountRef.current = 0; // reset silence timer on any speech
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
@@ -67,7 +119,8 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
     rec.start();
     setIsRecording(true);
     onStartRecording?.();
-  }, [onTranscript, onStartRecording]);
+    startTimerSilenceDetection();
+  }, [onTranscript, onStartRecording, startTimerSilenceDetection]);
 
   // ── Whisper STT (OpenAI / Groq — records WebM blob, sends to backend) ────────
   const startWhisperSTT = useCallback(async () => {
@@ -110,11 +163,12 @@ export default function MicButton({ onTranscript, provider, sessionId, disabled 
       rec.start(100);
       setIsRecording(true);
       onStartRecording?.();
+      startAudioSilenceDetection(stream);
     } catch (err) {
       setError('Microphone access denied.');
       setTimeout(() => setError(null), 3000);
     }
-  }, [sessionId, onTranscript, startBrowserSTT]);
+  }, [sessionId, onTranscript, startBrowserSTT, startAudioSilenceDetection]);
 
   const handleClick = useCallback(async () => {
     setError(null);
