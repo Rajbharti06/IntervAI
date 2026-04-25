@@ -292,7 +292,7 @@ export default function Dashboard() {
               <h3 className="text-lg font-medium text-gray-900 mb-2">No interviews yet</h3>
               <p className="text-gray-600 mb-6">Start your first interview to see your performance data here.</p>
               <button
-                onClick={() => navigate('/interview')}
+                onClick={() => navigate('/')}
                 className="btn-primary"
               >
                 Start Your First Interview

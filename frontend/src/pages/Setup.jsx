@@ -240,28 +240,11 @@ function Setup() {
 
       const { session_id, model: usedModel } = response.data;
 
-      // Persist active session
+      // Persist active session with all settings
       try {
-        localStorage.setItem(
-          'intervai_active_session',
-          JSON.stringify({ 
-            session_id, 
-            provider, 
-            domain, 
-            model: usedModel, 
-            startedAt: Date.now() 
-          })
-        );
-      } catch {}
-
-      // Persist extras and navigate with state
-      try {
-        const existing = localStorage.getItem('intervai_active_session');
-        const base = existing ? JSON.parse(existing) : {};
         localStorage.setItem(
           'intervai_active_session',
           JSON.stringify({
-            ...base,
             session_id,
             provider,
             domain,
@@ -269,7 +252,7 @@ function Setup() {
             difficulty,
             timeLimitSec,
             stressMode,
-            startedAt: base.startedAt || Date.now()
+            startedAt: Date.now(),
           })
         );
       } catch {}

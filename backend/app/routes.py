@@ -557,6 +557,38 @@ def _is_offline_demo(session: dict) -> bool:
     except Exception:
         return False
 
+# ─── Session persistence helpers ─────────────────────────────────────────────
+
+def _persist_answer(session: dict, answer: str, score: int, eval_data: dict, analysis_dict: dict):
+    """Write Q&A result into the session so both streaming and blocking paths stay in sync."""
+    question = session.get("current_question", "")
+    session.setdefault("qa_pairs", []).append({
+        "question": question,
+        "user_answer": answer,
+        "score": score,
+        "verdict": "Correct" if eval_data.get("is_correct") else ("Partially Correct" if score >= 5 else "Incorrect"),
+        "feedback": eval_data.get("detailed_feedback", ""),
+        "correct_answer": eval_data.get("correct_answer_hint", ""),
+        "improvement_tip": eval_data.get("improvement_tip", ""),
+        "topic_tag": eval_data.get("topic_tag", ""),
+        "analysis": analysis_dict,
+    })
+    session.setdefault("answers_given", []).append(answer)
+    session.setdefault("feedback_received", []).append(eval_data.get("detailed_feedback", ""))
+    session.setdefault("scores_10", []).append(score)
+    session.setdefault("analysis_history", []).append(analysis_dict)
+    session["last_score_10"] = score
+    # Cap history to last 30 entries to prevent memory growth
+    for key in ("qa_pairs", "answers_given", "feedback_received", "scores_10", "analysis_history"):
+        if len(session.get(key, [])) > 30:
+            session[key] = session[key][-30:]
+    if "soul_profile" in session:
+        session["soul_profile"] = soul_engine.update_profile(
+            session["soul_profile"], score, topic=eval_data.get("topic_tag") or session.get("domain")
+        )
+        session["difficulty"] = session["soul_profile"]["current_difficulty"]
+
+
 # ─── Soul-engine-powered evaluator (replaces per-provider duplication) ────────
 
 def _evaluate_with_soul(session: dict, answer: str) -> dict:
@@ -905,11 +937,17 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
                 'question': question,
                 'improvement_tips': 'Study core concepts; practice with real examples; focus on clarity and completeness.'
             })
+        improvement_tip_demo = 'Study core concepts; practice with real examples; focus on clarity and completeness.'
+        short_verdict_demo = 'Correct' if score >= 8 else ('Partially correct — needs more depth.' if score >= 5 else 'Answer too short or off-topic.')
+        topic_tag_demo = session.get('domain') or 'General'
         return {
             'score': score,
             'verdict': verdict,
+            'short_verdict': short_verdict_demo,
             'feedback': feedback,
             'correct_answer': correct_answer,
+            'improvement_tip': improvement_tip_demo,
+            'topic_tag': topic_tag_demo,
             'analysis': analysis_dict_local,
         }
 
@@ -939,28 +977,7 @@ def submit_interview_answer(session_id: str = Form(...), answer: str = Form(...)
     analysis = speech_analyzer.analyze(answer, question_type=interview_type)
     analysis_dict = speech_analyzer.to_dict(analysis)
 
-    session.setdefault('qa_pairs', []).append({
-        'question': session.get('current_question', ''),
-        'user_answer': answer,
-        'score': score,
-        'verdict': verdict,
-        'feedback': feedback,
-        'correct_answer': correct_answer,
-        'improvement_tip': improvement_tip,
-        'topic_tag': topic_tag,
-        'analysis': analysis_dict,
-    })
-    session.setdefault('answers_given', []).append(answer)
-    session.setdefault('feedback_received', []).append(feedback)
-    session.setdefault('scores_10', []).append(score)
-    session.setdefault('analysis_history', []).append(analysis_dict)
-    session['last_score_10'] = score
-
-    if "soul_profile" in session:
-        session["soul_profile"] = soul_engine.update_profile(
-            session["soul_profile"], score, topic=topic_tag
-        )
-        session["difficulty"] = session["soul_profile"]["current_difficulty"]
+    _persist_answer(session, answer, score, eval_data, analysis_dict)
 
     return {
         'score': score,
@@ -1406,6 +1423,34 @@ def stream_answer_feedback(session_id: str, answer: str):
         return StreamingResponse(_err(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    # Demo mode — fake stream with local evaluation
+    if _is_offline_demo(session):
+        user_answer = (answer or "").strip()
+        length = len(user_answer.split())
+        score = 1 if length < 3 else min(10, 5 + max(0, length - 8) // 2)
+        eval_data = {
+            "score": score,
+            "is_correct": score >= 7,
+            "short_verdict": "Correct" if score >= 8 else ("Partially correct." if score >= 5 else "Too short."),
+            "detailed_feedback": "Good structure and clarity." if score >= 8 else "Decent attempt—add more depth and real examples.",
+            "correct_answer_hint": f"A strong answer covers definition, trade-offs, and a practical example from {session.get('domain', 'your field')}.",
+            "improvement_tip": "Study core concepts; practice with real examples.",
+            "topic_tag": session.get("domain") or "General",
+        }
+        interview_type = session.get("interview_type", "general")
+        analysis = speech_analyzer.analyze(user_answer, question_type=interview_type)
+        analysis_dict = speech_analyzer.to_dict(analysis)
+        _persist_answer(session, answer, score, eval_data, analysis_dict)
+
+        def _demo_gen():
+            fake_feedback = eval_data["detailed_feedback"]
+            for word in fake_feedback.split():
+                yield f"data: {json.dumps(word + ' ')}\n\n"
+            yield f"data: [META]{json.dumps(eval_data)}\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_demo_gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     question = session.get("current_question", "")
     profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
     eval_prompt = soul_engine.build_evaluation_prompt(question, answer, profile)
@@ -1426,33 +1471,11 @@ def stream_answer_feedback(session_id: str, answer: str):
                 yield f"data: {json.dumps(chunk)}\n\n"
             full = "".join(accumulated)
             eval_data = soul_engine.parse_evaluation_json(full)
-
-            # Persist session state once we have the full response
             score = max(1, min(10, int(eval_data.get("score", 5))))
             interview_type = session.get("interview_type", "general")
             analysis = speech_analyzer.analyze(answer, question_type=interview_type)
             analysis_dict = speech_analyzer.to_dict(analysis)
-
-            session.setdefault('qa_pairs', []).append({
-                'question': question,
-                'user_answer': answer,
-                'score': score,
-                'verdict': "Correct" if eval_data.get("is_correct") else ("Partially Correct" if score >= 5 else "Incorrect"),
-                'feedback': eval_data.get("detailed_feedback", ""),
-                'correct_answer': eval_data.get("correct_answer_hint", ""),
-                'improvement_tip': eval_data.get("improvement_tip", ""),
-                'topic_tag': eval_data.get("topic_tag", ""),
-                'analysis': analysis_dict,
-            })
-            session.setdefault('scores_10', []).append(score)
-            session['last_score_10'] = score
-            if "soul_profile" in session:
-                session["soul_profile"] = soul_engine.update_profile(
-                    session["soul_profile"], score, topic=eval_data.get("topic_tag")
-                )
-                session["difficulty"] = session["soul_profile"]["current_difficulty"]
-
-            # Final event carries parsed eval metadata for the client
+            _persist_answer(session, answer, score, eval_data, analysis_dict)
             yield f"data: [META]{json.dumps(eval_data)}\n\n"
             yield "data: [DONE]\n\n"
         except Exception as exc:

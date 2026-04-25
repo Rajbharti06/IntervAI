@@ -605,6 +605,25 @@ function Interview() {
         localStorage.setItem('intervai_active_session', JSON.stringify(session));
       } catch {}
 
+      // Save to dashboard history
+      try {
+        const raw = localStorage.getItem('intervai_history');
+        const hist = raw ? JSON.parse(raw) : [];
+        const overallScore = summaryData?.summary?.overall_score;
+        hist.unshift({
+          id: Date.now().toString(),
+          at: Date.now(),
+          subject: sessionData.domain,
+          provider: sessionData.provider,
+          score: typeof overallScore === 'number'
+            ? Math.round(overallScore * 10)
+            : Math.round(interviewStats.averageScore * 10),
+          summary: summaryData?.summary,
+          messages,
+        });
+        localStorage.setItem('intervai_history', JSON.stringify(hist.slice(0, 50)));
+      } catch {}
+
       navigate('/summary', {
         state: {
           session_id: sessionData.session_id,
@@ -777,7 +796,7 @@ function Interview() {
                       </span>
                     </div>
                     {!isTimeUp && stressActive && timeLeft <= 10 && (
-                      <span className="text-xs text-red-600 animate-pulse">â° Focus â€” last 10s</span>
+                      <span className="text-xs text-red-600 animate-pulse">Focus — last 10s</span>
                     )}
                   </div>
                 )}
@@ -1001,10 +1020,10 @@ function Interview() {
                 <div className="p-4">
                   <h3 className="text-sm font-medium text-gray-900 mb-3">Tips</h3>
                   <div className="space-y-2 text-xs text-gray-600">
-                    <p>â€¢ Be specific and detailed in your answers</p>
-                    <p>â€¢ Use examples from your experience</p>
-                    <p>â€¢ Think out loud to show your process</p>
-                    <p>â€¢ Ask clarifying questions if needed</p>
+                    <p>• Be specific and detailed in your answers</p>
+                    <p>• Use examples from your experience</p>
+                    <p>• Think out loud to show your process</p>
+                    <p>• Ask clarifying questions if needed</p>
                   </div>
                 </div>
               </div>

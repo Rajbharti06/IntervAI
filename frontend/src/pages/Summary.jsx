@@ -105,6 +105,15 @@ function Summary() {
                 <span>{isDownloading ? 'Generating...' : 'Download PDF'}</span>
               </button>
               <button
+                onClick={() => navigate('/')}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>New Interview</span>
+              </button>
+              <button
                 onClick={() => navigate('/dashboard')}
                 className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
               >

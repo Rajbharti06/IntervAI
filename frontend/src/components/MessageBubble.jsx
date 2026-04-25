@@ -117,7 +117,7 @@ export default function MessageBubble({ message }) {
     : null;
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fadeIn`}>
+    <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} animate-fadeIn`}>
       <div className="flex items-start space-x-3 max-w-[85%]">
         {!isUser && getMessageIcon(type)}
 
@@ -182,7 +182,7 @@ export default function MessageBubble({ message }) {
       </div>
 
       {isUser && analysis && (
-        <div className="w-full mt-1 ml-11">
+        <div className="max-w-[85%] mt-1">
           <SpeechAnalysisCard
             analysis={analysis}
             isOpen={analysisOpen}
