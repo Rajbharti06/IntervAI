@@ -16,9 +16,18 @@ function Setup() {
   const [topics, setTopics] = useState('');
   const [companyTrack, setCompanyTrack] = useState('');
   const [interviewType, setInterviewType] = useState('general');
+  const [pressureLevel, setPressureLevel] = useState('none');
   const [tracks, setTracks] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [userMemory, setUserMemory] = useState(null);
+
+  useEffect(() => {
+    try {
+      const mem = localStorage.getItem('intervai_user_profile');
+      if (mem) setUserMemory(JSON.parse(mem));
+    } catch {}
+  }, []);
   const navigate = useNavigate();
 
   const providers = [
@@ -233,6 +242,12 @@ function Setup() {
       if (interviewType) {
         formData.append('interview_type', interviewType);
       }
+      formData.append('pressure_level', pressureLevel);
+      // Send cross-session user memory so the AI can reference past performance
+      try {
+        const mem = localStorage.getItem('intervai_user_profile');
+        if (mem) formData.append('user_memory', mem);
+      } catch {}
 
       const response = await axios.post(API_BASE + '/interview/start', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -258,7 +273,7 @@ function Setup() {
       } catch {}
 
       navigate('/interview', {
-        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode, company_track: companyTrack, interview_type: interviewType, track_info: response.data.track_info }
+        state: { session_id, provider, domain, model: usedModel, difficulty, timeLimitSec, stressMode, company_track: companyTrack, interview_type: interviewType, track_info: response.data.track_info, pressure_level: pressureLevel }
       });
     } catch (error) {
       console.error('Error starting interview:', error);
@@ -342,6 +357,32 @@ function Setup() {
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Configure Your Interview</h2>
               <p className="text-gray-600">Choose your AI provider, domain, and preferences</p>
             </div>
+
+            {/* Returning candidate memory banner */}
+            {userMemory?.sessions_completed > 0 && (
+              <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-start gap-3">
+                <div className="text-indigo-500 mt-0.5 flex-shrink-0">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.346.346a1.003 1.003 0 01-.69.293H9.36a1.003 1.003 0 01-.69-.293l-.346-.346z"/>
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-indigo-800">
+                    Welcome back — {userMemory.sessions_completed} session{userMemory.sessions_completed !== 1 ? 's' : ''} completed
+                  </p>
+                  {userMemory.weak_topics?.length > 0 && (
+                    <p className="text-xs text-indigo-600 mt-0.5">
+                      Last time you struggled with: <strong>{userMemory.weak_topics.slice(0, 3).join(' · ')}</strong>. The AI will revisit these.
+                    </p>
+                  )}
+                  {userMemory.strong_topics?.length > 0 && (
+                    <p className="text-xs text-indigo-500 mt-0.5">
+                      Strong in: {userMemory.strong_topics.slice(0, 3).join(' · ')}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-8">
               {/* Provider Selection */}
@@ -464,6 +505,28 @@ function Setup() {
                     >
                       <div className="text-xl mb-1">{t.icon}</div>
                       <div className="text-xs font-medium text-gray-700">{t.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pressure Mode */}
+              <div>
+                <label className="form-label">Pressure Mode</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { id: 'none', label: 'Relaxed', icon: '😌', desc: 'Normal pacing, supportive tone' },
+                    { id: 'moderate', label: 'Moderate', icon: '😤', desc: 'Concise answers expected, time-aware' },
+                    { id: 'high', label: 'High Pressure', icon: '🔥', desc: 'Intense, real on-site interview feel' },
+                  ].map(p => (
+                    <div
+                      key={p.id}
+                      className={`cursor-pointer rounded-lg border-2 p-3 text-center transition-all duration-200 ${pressureLevel === p.id ? 'border-red-500 bg-red-50 ring-2 ring-red-200' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}
+                      onClick={() => setPressureLevel(p.id)}
+                    >
+                      <div className="text-2xl mb-1">{p.icon}</div>
+                      <div className="text-xs font-semibold text-gray-800">{p.label}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">{p.desc}</div>
                     </div>
                   ))}
                 </div>

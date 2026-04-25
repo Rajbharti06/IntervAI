@@ -51,7 +51,7 @@ function Interview() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isFeedbackStreaming, setIsFeedbackStreaming] = useState(false);
   const { speak, stop: stopSpeech, interrupt: interruptSpeech, isSpeaking } = useVoice({ sessionData, enabled: voiceEnabled });
-  const { tabSwitches, totalViolations, riskLevel, riskColor, onPaste } = useAntiCheat({
+  const { tabSwitches, totalViolations, integrityScore, riskLevel, riskColor, onPaste } = useAntiCheat({
     enabled: true,
     onViolation: (v) => console.warn('[AntiCheat]', v),
   });
@@ -642,6 +642,34 @@ function Interview() {
         localStorage.setItem('intervai_history', JSON.stringify(hist.slice(0, 50)));
       } catch {}
 
+      // Update cross-session user memory profile
+      try {
+        const qa = summaryData?.summary?.qa_pairs || [];
+        const topicMap = {};
+        qa.forEach(p => {
+          const t = p.topic_tag || 'General';
+          if (!topicMap[t]) topicMap[t] = [];
+          topicMap[t].push(p.score || 0);
+        });
+        const existing = JSON.parse(localStorage.getItem('intervai_user_profile') || '{}');
+        const mergedWeak = { ...(existing.topic_scores || {}), ...topicMap };
+        const weakTopics = Object.entries(mergedWeak)
+          .filter(([, scores]) => (scores.reduce((a, b) => a + b, 0) / scores.length) < 6.5)
+          .map(([t]) => t).slice(0, 5);
+        const strongTopics = Object.entries(mergedWeak)
+          .filter(([, scores]) => (scores.reduce((a, b) => a + b, 0) / scores.length) >= 8)
+          .map(([t]) => t).slice(0, 5);
+        const updated = {
+          weak_topics: weakTopics,
+          strong_topics: strongTopics,
+          topic_scores: mergedWeak,
+          sessions_completed: (existing.sessions_completed || 0) + 1,
+          last_domain: sessionData.domain,
+          updated_at: Date.now(),
+        };
+        localStorage.setItem('intervai_user_profile', JSON.stringify(updated));
+      } catch {}
+
       navigate('/summary', {
         state: {
           session_id: sessionData.session_id,
@@ -650,6 +678,7 @@ function Interview() {
           summary: summaryData?.summary,
           domain: sessionData.domain,
           growth_plan: growthPlan,
+          integrity_score: integrityScore,
         }
       });
     } catch (error) {
@@ -708,19 +737,21 @@ function Interview() {
                   </span>
                 ) : null}
               </div>
-              {/* Anti-cheat risk indicator */}
-              {totalViolations > 0 && (
-                <div className={`hidden md:flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${
-                  riskLevel === 'high' ? 'bg-red-50 text-red-700 border-red-200' :
+              {/* Integrity Score */}
+              <div
+                className={`hidden md:flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${
+                  riskLevel === 'high'   ? 'bg-red-50 text-red-700 border-red-200' :
                   riskLevel === 'medium' ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                  'bg-yellow-50 text-yellow-700 border-yellow-200'
-                }`} title={`${tabSwitches} tab switch(es) detected`}>
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                  </svg>
-                  {totalViolations} flag{totalViolations !== 1 ? 's' : ''}
-                </div>
-              )}
+                  riskLevel === 'low'    ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                  'bg-green-50 text-green-700 border-green-200'
+                }`}
+                title={`${tabSwitches} tab switch(es) · ${totalViolations} total flag(s)`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                </svg>
+                {integrityScore}%
+              </div>
 
               {/* Voice toggle */}
               <button
@@ -796,12 +827,65 @@ function Interview() {
                 const isActive = aiState !== 'idle' && aiState !== 'waiting';
                 return (
                   <div className={`border-b border-gray-100 px-5 py-3 flex items-center gap-3 bg-gradient-to-r ${cfg.bg} rounded-t-xl flex-shrink-0`}>
-                    <div className={`relative flex-shrink-0 w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-sm ${isActive ? `ring-2 ${cfg.ring} ring-offset-1` : ''}`}>
+                    {/* Animated AI Avatar */}
+                    <div className={`relative flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-md ${isActive ? `ring-2 ${cfg.ring} ring-offset-2` : ''}`}>
                       {isActive && (
-                        <span className={`absolute inset-0 rounded-full ${cfg.dot} animate-ping opacity-30`} />
+                        <span className={`absolute inset-0 rounded-full ${cfg.dot} animate-ping opacity-25`} />
                       )}
-                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2" />
+                      {/* SVG face — eyes animate on state */}
+                      <svg viewBox="0 0 40 40" className="w-8 h-8" fill="none">
+                        {/* Face */}
+                        <circle cx="20" cy="20" r="18" fill="white" fillOpacity="0.15"/>
+                        {/* Eyes */}
+                        {aiState === 'thinking' ? (
+                          <>
+                            <ellipse cx="14" cy="17" rx="3" ry="2" fill="white" opacity="0.9">
+                              <animate attributeName="ry" values="2;0.5;2" dur="1.2s" repeatCount="indefinite"/>
+                            </ellipse>
+                            <ellipse cx="26" cy="17" rx="3" ry="2" fill="white" opacity="0.9">
+                              <animate attributeName="ry" values="2;0.5;2" dur="1.2s" begin="0.6s" repeatCount="indefinite"/>
+                            </ellipse>
+                          </>
+                        ) : aiState === 'speaking' ? (
+                          <>
+                            <circle cx="14" cy="17" r="3" fill="white" opacity="0.9"/>
+                            <circle cx="26" cy="17" r="3" fill="white" opacity="0.9"/>
+                            {/* Mouth waveform */}
+                            <rect x="12" y="24" width="2" height="4" rx="1" fill="white" opacity="0.8">
+                              <animate attributeName="height" values="2;6;2" dur="0.4s" repeatCount="indefinite"/>
+                            </rect>
+                            <rect x="16" y="22" width="2" height="7" rx="1" fill="white" opacity="0.9">
+                              <animate attributeName="height" values="3;8;3" dur="0.5s" begin="0.1s" repeatCount="indefinite"/>
+                            </rect>
+                            <rect x="20" y="23" width="2" height="5" rx="1" fill="white" opacity="0.8">
+                              <animate attributeName="height" values="2;6;2" dur="0.45s" begin="0.2s" repeatCount="indefinite"/>
+                            </rect>
+                            <rect x="24" y="22" width="2" height="7" rx="1" fill="white" opacity="0.9">
+                              <animate attributeName="height" values="3;7;3" dur="0.38s" begin="0.05s" repeatCount="indefinite"/>
+                            </rect>
+                          </>
+                        ) : aiState === 'evaluating' ? (
+                          <>
+                            <circle cx="14" cy="17" r="3" fill="white" opacity="0.9"/>
+                            <circle cx="26" cy="17" r="3" fill="white" opacity="0.9"/>
+                            {/* Thinking dots as mouth */}
+                            <circle cx="14" cy="27" r="1.5" fill="white" opacity="0.7">
+                              <animate attributeName="opacity" values="0.3;0.9;0.3" dur="0.9s" repeatCount="indefinite"/>
+                            </circle>
+                            <circle cx="20" cy="27" r="1.5" fill="white" opacity="0.7">
+                              <animate attributeName="opacity" values="0.3;0.9;0.3" dur="0.9s" begin="0.3s" repeatCount="indefinite"/>
+                            </circle>
+                            <circle cx="26" cy="27" r="1.5" fill="white" opacity="0.7">
+                              <animate attributeName="opacity" values="0.3;0.9;0.3" dur="0.9s" begin="0.6s" repeatCount="indefinite"/>
+                            </circle>
+                          </>
+                        ) : (
+                          <>
+                            <circle cx="14" cy="17" r="3" fill="white" opacity="0.9"/>
+                            <circle cx="26" cy="17" r="3" fill="white" opacity="0.9"/>
+                            <path d="M13 26 Q20 31 27 26" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none" opacity="0.8"/>
+                          </>
+                        )}
                       </svg>
                     </div>
                     <div className="min-w-0">

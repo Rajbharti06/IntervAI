@@ -581,6 +581,7 @@ def _persist_answer(session: dict, answer: str, score: int, eval_data: dict, ana
     session.setdefault("scores_10", []).append(score)
     session.setdefault("analysis_history", []).append(analysis_dict)
     session["last_score_10"] = score
+    session["last_answer_word_count"] = len(answer.split())
     # Cap history to last 30 entries to prevent memory growth
     for key in ("qa_pairs", "answers_given", "feedback_received", "scores_10", "analysis_history"):
         if len(session.get(key, [])) > 30:
@@ -647,7 +648,7 @@ def _generate_local_question(session: dict, session_id: str) -> str:
     return samples[idx]
 
 @router.post("/interview/start")
-def start_interview(provider: str = Form(...), api_key: str = Form(...), domain: str = Form(...), model: str | None = Form(None), difficulty: str = Form("basic"), topics: str | None = Form(None), company_track: str | None = Form(None), interview_type: str | None = Form(None)):
+def start_interview(provider: str = Form(...), api_key: str = Form(...), domain: str = Form(...), model: str | None = Form(None), difficulty: str = Form("basic"), topics: str | None = Form(None), company_track: str | None = Form(None), interview_type: str | None = Form(None), user_memory: str | None = Form(None), pressure_level: str = Form("none")):
     if not api_key:
         raise HTTPException(status_code=400, detail="API key cannot be empty")
     if provider not in API_CONFIGS:
@@ -685,6 +686,14 @@ def start_interview(provider: str = Form(...), api_key: str = Form(...), domain:
     if track_data:
         profile["topics"] = topic_list
 
+    # Parse cross-session user memory (sent as JSON string from frontend localStorage)
+    parsed_memory = None
+    if user_memory:
+        try:
+            parsed_memory = json.loads(user_memory)
+        except Exception:
+            pass
+
     active_sessions[session_id] = {
         "provider": provider,
         "api_key": api_key,
@@ -703,6 +712,9 @@ def start_interview(provider: str = Form(...), api_key: str = Form(...), domain:
         "last_score_10": None,
         "soul_profile": profile,
         "analysis_history": [],
+        "user_memory": parsed_memory,
+        "pressure_level": pressure_level if pressure_level in ("none", "moderate", "high") else "none",
+        "last_answer_word_count": None,
     }
     return {
         "message": "Interview session started",
@@ -1528,10 +1540,15 @@ def stream_question(session_id: str):
         return StreamingResponse(_cached_gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    track_data = company_tracks.get_track(session.get("company_track")) if session.get("company_track") else None
     soul_prompt = soul_engine.build_question_prompt(
         profile=profile,
         question_number=len(session.get("questions_asked", [])) + 1,
         last_score=session.get("last_score_10"),
+        user_memory=session.get("user_memory"),
+        last_answer_word_count=session.get("last_answer_word_count"),
+        company_track=track_data,
+        pressure_level=session.get("pressure_level", "none"),
     )
     messages = [{"role": "user", "content": soul_prompt}]
 
@@ -1604,7 +1621,8 @@ def stream_answer_feedback(session_id: str, answer: str):
 
     question = session.get("current_question", "")
     profile = session.get("soul_profile") or soul_engine.default_profile(session.get("domain", "General"))
-    eval_prompt = soul_engine.build_evaluation_prompt(question, answer, profile)
+    eval_track = company_tracks.get_track(session.get("company_track")) if session.get("company_track") else None
+    eval_prompt = soul_engine.build_evaluation_prompt(question, answer, profile, company_track=eval_track)
     messages = [
         {"role": "system", "content": "You are an expert interview evaluator. Respond with only valid JSON."},
         {"role": "user", "content": eval_prompt},

@@ -11,6 +11,7 @@ function Summary() {
   const growthPlan = location.state?.growth_plan || null;
   const gamification = summary?.gamification || null;
   const commStats = summary?.communication_stats || null;
+  const integrityScore = location.state?.integrity_score ?? 100;
   const [isDownloading, setIsDownloading] = useState(false);
 
   const contentRef = useRef(null);
@@ -154,7 +155,7 @@ function Summary() {
                 </div>
                 Session Results
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                 <div className="text-center bg-indigo-50 rounded-xl p-4">
                   <div className="text-2xl font-bold text-indigo-700">+{gamification.total_xp}</div>
                   <div className="text-xs text-indigo-500 mt-1">XP Earned</div>
@@ -170,6 +171,10 @@ function Summary() {
                 <div className="text-center bg-purple-50 rounded-xl p-4">
                   <div className="text-2xl font-bold text-purple-700">{gamification.questions_answered}</div>
                   <div className="text-xs text-purple-500 mt-1">Questions</div>
+                </div>
+                <div className={`text-center rounded-xl p-4 ${integrityScore >= 90 ? 'bg-emerald-50' : integrityScore >= 70 ? 'bg-yellow-50' : 'bg-red-50'}`}>
+                  <div className={`text-2xl font-bold ${integrityScore >= 90 ? 'text-emerald-700' : integrityScore >= 70 ? 'text-yellow-700' : 'text-red-700'}`}>{integrityScore}%</div>
+                  <div className={`text-xs mt-1 ${integrityScore >= 90 ? 'text-emerald-500' : integrityScore >= 70 ? 'text-yellow-500' : 'text-red-500'}`}>Integrity</div>
                 </div>
               </div>
               {gamification.badges_earned?.length > 0 && (
@@ -403,6 +408,65 @@ function Summary() {
                   </div>
                 )}
               </div>
+
+              {/* Growth Loop card */}
+              {(() => {
+                const improvable = topicList.filter(t => t.avg >= 5 && t.avg < 7.5);
+                if (improvable.length === 0) return null;
+                const best = improvable[improvable.length - 1]; // highest avg in the improvable range
+                const projected = Math.min(10, +(best.avg + 2.2).toFixed(1));
+                return (
+                  <div className="bg-gradient-to-br from-violet-600 to-indigo-700 rounded-2xl shadow-xl p-6 text-white">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center text-lg flex-shrink-0">
+                        🚀
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-bold">Your Quick Win</h2>
+                        <p className="text-violet-200 text-xs">One focus area with the biggest score jump potential</p>
+                      </div>
+                    </div>
+                    <div className="bg-white/10 rounded-xl p-4 mb-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold">{best.topic}</span>
+                        <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">avg {best.avg.toFixed(1)}/10</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="flex justify-between text-xs text-violet-200 mb-1">
+                            <span>Now</span><span>After 3 sessions</span>
+                          </div>
+                          <div className="relative h-2 bg-white/20 rounded-full overflow-hidden">
+                            <div className="absolute left-0 top-0 h-2 bg-violet-300 rounded-full" style={{width:`${best.avg * 10}%`}} />
+                            <div className="absolute top-0 h-2 bg-white rounded-full opacity-80 transition-all duration-700" style={{width:`${projected * 10}%`}} />
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-white font-bold text-lg leading-none">{best.avg.toFixed(1)} → {projected}</div>
+                          <div className="text-violet-200 text-xs">projected</div>
+                        </div>
+                      </div>
+                    </div>
+                    {best.tip && (
+                      <p className="text-sm text-violet-100 leading-relaxed mb-3">
+                        💡 {best.tip}
+                      </p>
+                    )}
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { day: 'Day 1–2', action: `Study ${best.topic} fundamentals` },
+                        { day: 'Day 3–5', action: 'Practice 2–3 mock questions' },
+                        { day: 'Day 6–7', action: 'Full session focusing on this area' },
+                      ].map(s => (
+                        <div key={s.day} className="bg-white/10 rounded-lg p-2 text-center">
+                          <div className="text-xs font-semibold text-violet-200">{s.day}</div>
+                          <div className="text-xs text-white mt-0.5 leading-tight">{s.action}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Interview Replay */}
               <div className="bg-white rounded-2xl shadow-xl p-6">
