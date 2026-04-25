@@ -772,38 +772,44 @@ function Interview() {
       {/* Gamification Bar */}
       <GamificationBar sessionXp={sessionXp} newBadges={newBadges} />
 
-      {/* Session Info */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center">
-              <div className="text-sm text-gray-500">Domain</div>
-              <div className="font-medium text-gray-900">{sessionData.domain}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-500">Provider</div>
-              <div className="font-medium text-gray-900 capitalize">{sessionData.provider}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-500">Questions</div>
-              <div className="font-medium text-gray-900">{interviewStats.questionsAsked}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-500">Avg Score</div>
-              <div className="font-medium text-gray-900">
-                {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/10` : 'N/A'}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Main Content */}
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <div className="w-[95%] max-w-[1400px] mx-auto px-4 py-6">
+        <div className="grid grid-cols-1 int900:grid-cols-[1fr_320px] gap-6">
           {/* Messages Area */}
-          <div className="lg:col-span-3">
-            <div className="card h-[600px] flex flex-col">
+          <div>
+            <div className="card flex flex-col" style={{height: '70vh', minHeight: '520px'}}>
+              {/* AI Presence Zone */}
+              <div className="border-b border-gray-100 px-5 py-3 flex items-center gap-3 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-t-xl flex-shrink-0">
+                <div className={`relative flex-shrink-0 w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center shadow-sm ${isSpeaking || isGeneratingQuestion ? 'ring-2 ring-indigo-300 ring-offset-1' : ''}`}>
+                  {(isSpeaking || isGeneratingQuestion) && (
+                    <span className="absolute inset-0 rounded-full bg-indigo-400 animate-ping opacity-40" />
+                  )}
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900">AI Interviewer</div>
+                  <div className="text-xs text-gray-500">
+                    {isGeneratingQuestion ? 'Composing question...' : isSpeaking ? 'Speaking...' : isLoading ? 'Evaluating your answer...' : currentQuestion ? 'Waiting for your response' : 'Ready to begin'}
+                  </div>
+                </div>
+                <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+                  {currentQuestion && (
+                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                      Q{interviewStats.questionsAsked}
+                    </span>
+                  )}
+                  {isSpeaking && (
+                    <span className="flex gap-0.5 items-end">
+                      {[6,10,8].map((h, i) => (
+                        <span key={i} className="w-1 bg-indigo-500 rounded-full animate-bounce" style={{height: `${h}px`, animationDelay: `${i * 0.12}s`}} />
+                      ))}
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {messages.length === 0 ? (
@@ -926,7 +932,8 @@ function Interview() {
                       onPaste={onPaste}
                       placeholder="Type your answer here... (or upload a PDF/DOCX to practice from it)"
                       className="form-input resize-none"
-                      rows="3"
+                      rows="4"
+                      style={{fontSize: '16px', minHeight: '80px'}}
                       disabled={isLoading || !currentQuestion || isTimeUp}
                     />
                     {/* Hidden file input */}
@@ -1009,8 +1016,45 @@ function Interview() {
           </div>
 
           {/* Sidebar */}
-          <div className="lg:col-span-1">
-            <div className="space-y-6">
+          <div>
+            <div className="space-y-4">
+              {/* Session Info */}
+              <div className="card">
+                <div className="p-4">
+                  <h3 className="text-sm font-medium text-gray-900 mb-3">Session</h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Domain</span>
+                      <span className="font-medium text-gray-900 text-right max-w-[160px] truncate">{sessionData.domain}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Provider</span>
+                      <span className="font-medium text-gray-900 capitalize">{sessionData.provider}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Duration</span>
+                      <span className="font-medium">{formatTime(interviewStats.totalTime)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Questions</span>
+                      <span className="font-medium">{interviewStats.questionsAsked}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Avg Score</span>
+                      <span className="font-medium">
+                        {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/10` : 'N/A'}
+                      </span>
+                    </div>
+                    {sessionData?.difficulty && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Difficulty</span>
+                        <span className="font-medium capitalize">{sessionData.difficulty}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {/* Quick Actions */}
               <div className="card">
                 <div className="p-4">
@@ -1023,7 +1067,6 @@ function Interview() {
                     >
                       {isGeneratingQuestion ? 'Generating...' : 'New Question'}
                     </button>
-                    
                     <button
                       onClick={() => setInput('')}
                       className="w-full btn btn-outline btn-sm"
@@ -1038,8 +1081,8 @@ function Interview() {
               <div className="card">
                 <div className="p-4">
                   <h3 className="text-sm font-medium text-gray-900 mb-3">Camera Preview</h3>
-                  <div className="rounded-lg overflow-hidden bg-black aspect-video">
-                    <video ref={videoRef} className="w-full h-full" muted playsInline />
+                  <div className="rounded-lg overflow-hidden bg-black" style={{height: '180px'}}>
+                    <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
                   </div>
                   <div className="mt-3 flex space-x-2">
                     {!cameraOn ? (
@@ -1051,29 +1094,6 @@ function Interview() {
                   {errors.camera && (
                     <p className="mt-2 text-xs text-red-600">{errors.camera}</p>
                   )}
-                </div>
-              </div>
-
-              {/* Session Stats */}
-              <div className="card">
-                <div className="p-4">
-                  <h3 className="text-sm font-medium text-gray-900 mb-3">Session Stats</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Duration</span>
-                      <span className="font-medium">{formatTime(interviewStats.totalTime)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Questions</span>
-                      <span className="font-medium">{interviewStats.questionsAsked}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Avg Score</span>
-                      <span className="font-medium">
-                        {interviewStats.averageScore > 0 ? `${interviewStats.averageScore.toFixed(1)}/10` : 'N/A'}
-                      </span>
-                    </div>
-                  </div>
                 </div>
               </div>
 
